@@ -12,7 +12,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Runner Chase',
+      title: 'Runner Chase Final TEST',
       debugShowCheckedModeBanner: false,
       home: const GameScreen(),
     );
