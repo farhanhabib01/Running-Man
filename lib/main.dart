@@ -54,7 +54,7 @@ class _GameScreenState extends State<GameScreen> {
 
   List<FallingItem> items = [];
 
-  double speed = 0.010;
+  double speed = 0.006;
 
   int score = 0;
   int highestScore = 0;
@@ -86,7 +86,7 @@ class _GameScreenState extends State<GameScreen> {
     items.clear();
 
     score = 0;
-    speed = 0.010;
+    speed = 0.006;
 
     playerLane = 1;
 
@@ -102,7 +102,7 @@ class _GameScreenState extends State<GameScreen> {
 
     nextSpawnTick = 35;
 
-    gameTimer = Timer.periodic(const Duration(milliseconds: 30), (timer) {
+    gameTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
       updateGame();
     });
   }
@@ -113,7 +113,7 @@ class _GameScreenState extends State<GameScreen> {
     setState(() {
       tickCounter++;
 
-      roadOffset += speed * 800;
+      roadOffset += speed * 500;
 
       if (roadOffset > 80) {
         roadOffset = 0;
@@ -145,7 +145,7 @@ class _GameScreenState extends State<GameScreen> {
       // SPEED PROGRESS
       // ==========================================
 
-      double speedProgress = ((speed - 0.010) / (0.038 - 0.010)).clamp(
+      double speedProgress = ((speed - 0.006) / (0.024 - 0.006)).clamp(
         0.0,
         1.0,
       );
@@ -158,14 +158,14 @@ class _GameScreenState extends State<GameScreen> {
         // Number of items increases gradually
         int itemCount;
 
-        if (speedProgress < 0.25) {
+        if (speedProgress < 0.20) {
           itemCount = 1;
-        } else if (speedProgress < 0.55) {
+        } else if (speedProgress < 0.45) {
           itemCount = 2;
-        } else if (speedProgress < 0.80) {
-          itemCount = 2;
-        } else {
+        } else if (speedProgress < 0.70) {
           itemCount = 3;
+        } else {
+          itemCount = 4;
         }
 
         // Prevent all three lanes from being blocked
@@ -184,14 +184,14 @@ class _GameScreenState extends State<GameScreen> {
           double chance = random.nextDouble();
 
           // Car probability gradually increases
-          double carChance = (0.25 + (speed - 0.010) * 6).clamp(0.25, 0.45);
+          double carChance = (0.25 + (speed - 0.006) * 6).clamp(0.25, 0.45);
 
-          // Coin probability also increases
-          double coinChance = 0.40 + (speedProgress * 0.12);
+          // Coin probability also increases (more coins overall now)
+          double coinChance = 0.45 + (speedProgress * 0.20);
 
           // Keep total probability safe
-          if (coinChance > 0.52) {
-            coinChance = 0.52;
+          if (coinChance > 0.65) {
+            coinChance = 0.65;
           }
 
           ItemType type;
@@ -227,10 +227,10 @@ class _GameScreenState extends State<GameScreen> {
         // HURDLE FREQUENCY INCREASES WITH SPEED
         // ==========================================
 
-        int baseGap = (48 - (speedProgress * 24)).round();
+        int baseGap = (48 - (speedProgress * 32)).round();
 
-        if (baseGap < 20) {
-          baseGap = 20;
+        if (baseGap < 14) {
+          baseGap = 14;
         }
 
         int randomVariance = random.nextInt(10);
@@ -270,11 +270,11 @@ class _GameScreenState extends State<GameScreen> {
       // GRADUAL SPEED INCREASE
       // ==========================================
 
-      if (tickCounter % 120 == 0) {
-        speed += 0.0015;
+      if (tickCounter % 90 == 0) {
+        speed += 0.0008;
 
-        if (speed > 0.038) {
-          speed = 0.038;
+        if (speed > 0.024) {
+          speed = 0.024;
         }
       }
 
