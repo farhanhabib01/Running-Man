@@ -1,11 +1,6 @@
 git add .
 
-$message = Read-Host "Enter commit message"
-
-if ([string]::IsNullOrWhiteSpace($message)) {
-    Write-Host "Commit message cannot be empty."
-    exit 1
-}
+$message = "Auto-commit: " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
 
 git commit -m "$message"
 
