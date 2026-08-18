@@ -389,7 +389,6 @@ class _GameScreenState extends State<GameScreen> {
         return Image.asset('assets/game/bushes.png', width: 55, height: 55);
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
