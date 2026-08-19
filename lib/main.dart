@@ -197,7 +197,7 @@ class _GameScreenState extends State<GameScreen> {
 
           if (type == ItemType.car) {
             carImg = random.nextBool()
-                ? 'assets/game/car1.jpg'
+                ? 'assets/game/car1.png'
                 : 'assets/game/car2.png';
           }
 
