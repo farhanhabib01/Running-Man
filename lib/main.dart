@@ -20,7 +20,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-
 class StartScreen extends StatefulWidget {
   const StartScreen({super.key});
 
@@ -347,7 +346,10 @@ class _GameScreenState extends State<GameScreen> {
   Future<void> playGameOverSound() async {
     try {
       await gameOverPlayer.stop();
-      await gameOverPlayer.play(AssetSource('sounds/gameover.mp3'), volume: 1.0);
+      await gameOverPlayer.play(
+        AssetSource('sounds/gameover.mp3'),
+        volume: 1.0,
+      );
     } catch (_) {}
   }
 
@@ -724,8 +726,9 @@ class _GameScreenState extends State<GameScreen> {
     final roadWidth = laneWidth * laneCount;
 
     final double playerJumpOffset = isJumping ? _jumpArc(jumpTick) : 0;
-    final double policeJumpOffset =
-        policeIsJumping ? _jumpArc(policeJumpTick) : 0;
+    final double policeJumpOffset = policeIsJumping
+        ? _jumpArc(policeJumpTick)
+        : 0;
 
     return Scaffold(
       backgroundColor: Colors.green[700],
@@ -795,11 +798,7 @@ class _GameScreenState extends State<GameScreen> {
             Positioned(
               left: policeLane * laneWidth + laneWidth / 2 - 27,
               top: policeY * size.height - policeJumpOffset,
-              child: safeImage(
-                'assets/game/police.png',
-                width: 55,
-                height: 55,
-              ),
+              child: safeImage('assets/game/police.png', width: 55, height: 55),
             ),
 
             // Player - lifts up when isJumping is active
@@ -852,7 +851,9 @@ class _GameScreenState extends State<GameScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        isArrested ? 'GIRIFTAR HO GAYE! \u{1F694}' : 'PAKRAY GAYE! \u{1F6A8}',
+                        isArrested
+                            ? 'GIRIFTAR HO GAYE! \u{1F694}'
+                            : 'PAKRAY GAYE! \u{1F6A8}',
                         style: const TextStyle(
                           color: Colors.red,
                           fontSize: 32,
