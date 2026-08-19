@@ -874,6 +874,13 @@ class _GameScreenState extends State<GameScreen>
   int score = 0;
   int highestScore = 0;
 
+  // Coin counter + level progression.
+  int coins = 0;
+  int highestCoins = 0;
+  int level = 1;
+  int highestLevel = 1;
+  bool isNewHighScore = false;
+
   bool isGameOver = false;
   bool isArrested = false;
 
@@ -911,6 +918,7 @@ class _GameScreenState extends State<GameScreen>
   late AnimationController _scoreBumpController; // score pop when coins are collected
   late Animation<double> _scoreBumpAnimation;
   late AnimationController _gameOverController; // entrance for the game-over card
+  late AnimationController _gameOverPulseController; // subtle card glow/pulse
 
   @override
   void initState() {
@@ -949,10 +957,15 @@ class _GameScreenState extends State<GameScreen>
 
     _gameOverController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 550),
+      duration: const Duration(milliseconds: 700),
     )..addListener(() {
         if (mounted) setState(() {});
       });
+
+    _gameOverPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    )..repeat(reverse: true);
 
     startGame();
   }
@@ -964,6 +977,9 @@ class _GameScreenState extends State<GameScreen>
     popups.clear();
 
     score = 0;
+    coins = 0;
+    level = 1;
+    isNewHighScore = false;
     speed = 0.006;
 
     playerLane = 1;
@@ -1165,6 +1181,7 @@ class _GameScreenState extends State<GameScreen>
             item.y > playerY - 0.06 &&
             item.y < playerY + 0.06) {
           if (item.type == ItemType.coin) {
+            coins += 1;
             score += 10;
             popups.add(
               FloatingPopup(x: item.lane * 1.0, y: item.y, text: '+10'),
@@ -1203,8 +1220,20 @@ class _GameScreenState extends State<GameScreen>
         score += 1;
       }
 
+      // Every 10 collected coins = next level.
+      final newLevel = (coins ~/ 10) + 1;
+      if (newLevel != level) {
+        level = newLevel;
+      }
+
       if (score > highestScore) {
         highestScore = score;
+      }
+      if (coins > highestCoins) {
+        highestCoins = coins;
+      }
+      if (level > highestLevel) {
+        highestLevel = level;
       }
     });
   }
@@ -1223,8 +1252,18 @@ class _GameScreenState extends State<GameScreen>
   void gameOver() {
     isGameOver = true;
 
+    // Capture the record BEFORE updating it, so the banner is shown
+    // only when this run actually beats the previous best.
+    isNewHighScore = score > highestScore;
+
     if (score > highestScore) {
       highestScore = score;
+    }
+    if (coins > highestCoins) {
+      highestCoins = coins;
+    }
+    if (level > highestLevel) {
+      highestLevel = level;
     }
 
     gameTimer?.cancel();
@@ -1306,6 +1345,7 @@ class _GameScreenState extends State<GameScreen>
     _shakeController.dispose();
     _scoreBumpController.dispose();
     _gameOverController.dispose();
+    _gameOverPulseController.dispose();
     super.dispose();
   }
 
@@ -1334,6 +1374,29 @@ class _GameScreenState extends State<GameScreen>
           ),
         );
       },
+    );
+  }
+
+  Widget _hudCard({required Widget child, double? width}) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.48),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.16),
+          width: 1,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black38,
+            blurRadius: 12,
+            offset: Offset(0, 5),
+          ),
+        ],
+      ),
+      child: child,
     );
   }
 
@@ -1396,6 +1459,48 @@ class _GameScreenState extends State<GameScreen>
 
     final scaleX = 2.0 - scaleY;
     return Offset(scaleX, scaleY);
+  }
+
+  Widget _resultStat(
+    IconData icon,
+    String label,
+    String value,
+    Color valueColor,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.055),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.08),
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: valueColor, size: 20),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -1599,144 +1704,442 @@ class _GameScreenState extends State<GameScreen>
                   ),
                 ),
 
+              // =========================
+              // PROFESSIONAL HUD
+              // =========================
               Positioned(
-                top: 44,
-                left: 16,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.45),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      width: 1,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.bolt,
-                            color: Colors.white,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 4),
-                          Transform.scale(
-                            scale: _scoreBumpAnimation.value,
-                            child: Text(
-                              '$score',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.emoji_events,
-                            color: Colors.amber,
-                            size: 15,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '$highestScore',
-                            style: const TextStyle(
-                              color: Colors.amber,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-              if (isGameOver)
-                Opacity(
-                  opacity: Curves.easeIn.transform(_gameOverController.value),
-                  child: Container(
-                    color: Colors.black87,
-                    width: size.width,
-                    height: size.height,
-                    child: Center(
-                      child: Transform.scale(
-                        scale: Curves.elasticOut.transform(
-                          _gameOverController.value,
-                        ),
+                top: 42,
+                left: 14,
+                right: 14,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Score / best
+                    Expanded(
+                      child: _hudCard(
                         child: Column(
-                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              isArrested
-                                  ? 'GIRIFTAR HO GAYE! \u{1F694}'
-                                  : 'PAKRAY GAYE! \u{1F6A8}',
-                              style: const TextStyle(
-                                color: Colors.red,
-                                fontSize: 32,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.bolt_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 5),
+                                const Text(
+                                  'SCORE',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 10),
-                            Text(
-                              'Score: $score',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Highest Score: $highestScore',
-                              style: const TextStyle(
-                                color: Colors.amber,
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            if (score >= highestScore)
-                              const Text(
-                                '\u{1F3C6} NEW HIGH SCORE! \u{1F3C6}',
-                                style: TextStyle(
-                                  color: Colors.greenAccent,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
+                            const SizedBox(height: 2),
+                            Transform.scale(
+                              scale: _scoreBumpAnimation.value,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '$score',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 23,
+                                  fontWeight: FontWeight.w900,
                                 ),
                               ),
-                            const SizedBox(height: 30),
-                            ElevatedButton.icon(
-                              onPressed: restartGame,
-                              icon: const Icon(Icons.refresh),
-                              label: const Text('Dobara Try Karo'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blueAccent,
-                                foregroundColor: Colors.white,
-                                elevation: 6,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 30,
-                                  vertical: 15,
-                                ),
+                            ),
+                            const SizedBox(height: 1),
+                            Text(
+                              'BEST  $highestScore',
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ],
                         ),
                       ),
                     ),
+                    const SizedBox(width: 8),
+
+                    // Level
+                    _hudCard(
+                      width: 72,
+                      child: Column(
+                        children: [
+                          const Icon(
+                            Icons.bolt_rounded,
+                            color: Colors.amberAccent,
+                            size: 20,
+                          ),
+                          Text(
+                            'LV $level',
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    // Coins
+                    _hudCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              const Icon(
+                                Icons.monetization_on_rounded,
+                                color: Colors.amber,
+                                size: 19,
+                              ),
+                              const SizedBox(width: 4),
+                              const Text(
+                                'COINS',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.1,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$coins',
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 23,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            'BEST  $highestCoins',
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (isGameOver)
+                Positioned.fill(
+                  child: AnimatedBuilder(
+                    animation: _gameOverPulseController,
+                    builder: (context, child) {
+                      final t = Curves.easeInOut.transform(
+                        _gameOverPulseController.value,
+                      );
+                      final overlayOpacity =
+                          Curves.easeOut.transform(_gameOverController.value) *
+                          0.88;
+
+                      return Container(
+                        color: Colors.black.withValues(alpha: overlayOpacity),
+                        child: Center(
+                          child: Opacity(
+                            opacity: Curves.easeOut.transform(
+                              _gameOverController.value,
+                            ),
+                            child: Transform.scale(
+                              scale: 0.82 +
+                                  0.18 *
+                                      Curves.easeOutBack.transform(
+                                        _gameOverController.value,
+                                      ),
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                ),
+                                padding: const EdgeInsets.fromLTRB(
+                                  22,
+                                  22,
+                                  22,
+                                  20,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      const Color(0xFF17202A),
+                                      const Color(0xFF0B1118),
+                                      Colors.red.shade900.withValues(
+                                        alpha: 0.28,
+                                      ),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(28),
+                                  border: Border.all(
+                                    color: Colors.redAccent.withValues(
+                                      alpha: 0.55 + (t * 0.25),
+                                    ),
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.redAccent.withValues(
+                                        alpha: 0.16 + (t * 0.12),
+                                      ),
+                                      blurRadius: 28 + (t * 8),
+                                      spreadRadius: 2,
+                                    ),
+                                    const BoxShadow(
+                                      color: Colors.black54,
+                                      blurRadius: 24,
+                                      offset: Offset(0, 12),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // Animated arrest badge
+                                    Transform.scale(
+                                      scale: 0.96 + (t * 0.08),
+                                      child: Container(
+                                        width: 78,
+                                        height: 78,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          gradient: RadialGradient(
+                                            colors: [
+                                              Colors.redAccent.withValues(
+                                                alpha: 0.95,
+                                              ),
+                                              Colors.red.shade900,
+                                            ],
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.white24,
+                                            width: 2,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.redAccent
+                                                  .withValues(alpha: 0.35),
+                                              blurRadius: 20,
+                                              spreadRadius: 2,
+                                            ),
+                                          ],
+                                        ),
+                                        child: Icon(
+                                          isArrested
+                                              ? Icons.local_police_rounded
+                                              : Icons.warning_amber_rounded,
+                                          color: Colors.white,
+                                          size: 42,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+
+                                    Text(
+                                      isArrested
+                                          ? 'GAME OVER'
+                                          : 'RUN ENDED',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 30,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 2,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      isArrested
+                                          ? 'YOU GOT CAUGHT!'
+                                          : 'WATCH OUT NEXT TIME',
+                                      style: TextStyle(
+                                        color: Colors.redAccent.shade100,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 1.5,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 20),
+
+                                    // Result stats
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: _resultStat(
+                                            Icons.bolt_rounded,
+                                            'SCORE',
+                                            '$score',
+                                            Colors.white,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _resultStat(
+                                            Icons.monetization_on_rounded,
+                                            'COINS',
+                                            '$coins',
+                                            Colors.amberAccent,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: _resultStat(
+                                            Icons.flash_on_rounded,
+                                            'LEVEL',
+                                            '$level',
+                                            Colors.cyanAccent,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.055,
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                          14,
+                                        ),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.08,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          const Text(
+                                            'BEST COINS',
+                                            style: TextStyle(
+                                              color: Colors.white60,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 1,
+                                            ),
+                                          ),
+                                          Text(
+                                            '$highestCoins',
+                                            style: const TextStyle(
+                                              color: Colors.amber,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                          Container(
+                                            width: 1,
+                                            height: 18,
+                                            color: Colors.white12,
+                                          ),
+                                          const Text(
+                                            'BEST LEVEL',
+                                            style: TextStyle(
+                                              color: Colors.white60,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 1,
+                                            ),
+                                          ),
+                                          Text(
+                                            '$highestLevel',
+                                            style: const TextStyle(
+                                              color: Colors.cyanAccent,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+
+                                    if (isNewHighScore)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 13),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: const [
+                                            Icon(
+                                              Icons.emoji_events_rounded,
+                                              color: Colors.amber,
+                                              size: 18,
+                                            ),
+                                            SizedBox(width: 6),
+                                            Text(
+                                              'NEW HIGH SCORE!',
+                                              style: TextStyle(
+                                                color: Colors.amberAccent,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w900,
+                                                letterSpacing: 1,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+
+                                    const SizedBox(height: 20),
+
+                                    SizedBox(
+                                      width: double.infinity,
+                                      height: 52,
+                                      child: ElevatedButton.icon(
+                                        onPressed: restartGame,
+                                        icon: const Icon(
+                                          Icons.replay_rounded,
+                                          size: 23,
+                                        ),
+                                        label: const Text(
+                                          'PLAY AGAIN',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w900,
+                                            letterSpacing: 1,
+                                          ),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.amber,
+                                          foregroundColor: Colors.black,
+                                          elevation: 10,
+                                          shadowColor: Colors.amber.withValues(
+                                            alpha: 0.35,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(17),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
             ],
