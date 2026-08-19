@@ -187,7 +187,8 @@ class _FloatingCloudsState extends State<_FloatingClouds>
             return Stack(
               children: List.generate(_startOffsets.length, (i) {
                 final t =
-                    (_controller.value * _speeds[i] + _startOffsets[i]) % 1.0;
+                    (_controller.value * _speeds[i] + _startOffsets[i]) %
+                        1.0;
                 final left = t * (width + _sizes[i]) - _sizes[i];
 
                 return Positioned(
@@ -533,7 +534,9 @@ class _StartScreenState extends State<StartScreen>
                   value: loadingProgress,
                   minHeight: 14,
                   backgroundColor: Colors.black26,
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    Colors.amber,
+                  ),
                 ),
                 // Shine sweep gliding across the bar for a polished,
                 // "still working" feel while it fills up.
@@ -683,7 +686,9 @@ class _StartScreenState extends State<StartScreen>
                         fontSize: 34,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 2,
-                        shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
+                        shadows: [
+                          Shadow(color: Colors.black45, blurRadius: 6),
+                        ],
                       ),
                     ),
                   ),
@@ -719,7 +724,9 @@ class _StartScreenState extends State<StartScreen>
                                     _buildGlowRing(0.5),
                                     Transform.rotate(
                                       angle:
-                                          _ringRotateController.value * 2 * pi,
+                                          _ringRotateController.value *
+                                          2 *
+                                          pi,
                                       child: CustomPaint(
                                         size: const Size(150, 150),
                                         painter: _RadarRingPainter(
@@ -767,13 +774,15 @@ class _StartScreenState extends State<StartScreen>
                           return FadeTransition(
                             opacity: animation,
                             child: ScaleTransition(
-                              scale: Tween<double>(begin: 0.85, end: 1.0)
-                                  .animate(
-                                    CurvedAnimation(
-                                      parent: animation,
-                                      curve: Curves.easeOutBack,
-                                    ),
-                                  ),
+                              scale: Tween<double>(
+                                begin: 0.85,
+                                end: 1.0,
+                              ).animate(
+                                CurvedAnimation(
+                                  parent: animation,
+                                  curve: Curves.easeOutBack,
+                                ),
+                              ),
                               child: child,
                             ),
                           );
@@ -846,7 +855,8 @@ class GameScreen extends StatefulWidget {
   State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
+class _GameScreenState extends State<GameScreen>
+    with TickerProviderStateMixin {
   static const int laneCount = 3;
 
   int playerLane = 1;
@@ -897,33 +907,28 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // These run on their own tickers so they animate smoothly even in
   // the instant the main game timer stops (e.g. right at game over).
   // ==========================================
-  late AnimationController
-  _shakeController; // screen shake + red flash on arrest
-  late AnimationController
-  _scoreBumpController; // score pop when coins are collected
+  late AnimationController _shakeController; // screen shake + red flash on arrest
+  late AnimationController _scoreBumpController; // score pop when coins are collected
   late Animation<double> _scoreBumpAnimation;
-  late AnimationController
-  _gameOverController; // entrance for the game-over card
+  late AnimationController _gameOverController; // entrance for the game-over card
 
   @override
   void initState() {
     super.initState();
 
-    _shakeController =
-        AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 500),
-        )..addListener(() {
-          if (mounted) setState(() {});
-        });
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..addListener(() {
+        if (mounted) setState(() {});
+      });
 
-    _scoreBumpController =
-        AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 260),
-        )..addListener(() {
-          if (mounted) setState(() {});
-        });
+    _scoreBumpController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    )..addListener(() {
+        if (mounted) setState(() {});
+      });
 
     _scoreBumpAnimation = TweenSequence<double>([
       TweenSequenceItem(
@@ -942,13 +947,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       ),
     ]).animate(_scoreBumpController);
 
-    _gameOverController =
-        AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 550),
-        )..addListener(() {
-          if (mounted) setState(() {});
-        });
+    _gameOverController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 550),
+    )..addListener(() {
+        if (mounted) setState(() {});
+      });
 
     startGame();
   }
@@ -1617,7 +1621,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.bolt, color: Colors.white, size: 18),
+                          const Icon(
+                            Icons.bolt,
+                            color: Colors.white,
+                            size: 18,
+                          ),
                           const SizedBox(width: 4),
                           Transform.scale(
                             scale: _scoreBumpAnimation.value,
