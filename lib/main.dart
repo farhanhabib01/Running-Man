@@ -8,19 +8,23 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // YEH CODE ZAROORI HAI SOUNDS KO EK SATH PLAY KARNE KE LIYE (MIXING)
-  await AudioPlayer.global.setAudioContext(const AudioContext(
-    android: AudioContextAndroid(
-      isSpeakerphoneOn: false,
-      stayAwake: true,
-      contentType: AndroidContentType.music,
-      usageType: AndroidUsageType.game,
-      audioFocus: AndroidAudioFocus.none, // Is se background music stop nahi hoga
+  await AudioPlayer.global.setAudioContext(
+    const AudioContext(
+      android: AudioContextAndroid(
+        isSpeakerphoneOn: false,
+        stayAwake: true,
+        contentType: AndroidContentType.music,
+        usageType: AndroidUsageType.game,
+        audioFocus:
+            AndroidAudioFocus.none, // Is se background music stop nahi hoga
+      ),
+      iOS: AudioContextIOS(
+        category: AVAudioSessionCategory
+            .ambient, // Ambient se dusre sounds mix hote hain
+        options: [AVAudioSessionOptions.mixWithOthers],
+      ),
     ),
-    iOS: AudioContextIOS(
-      category: AVAudioSessionCategory.ambient, // Ambient se dusre sounds mix hote hain
-      options: [AVAudioSessionOptions.mixWithOthers],
-    ),
-  ));
+  );
 
   runApp(const MyApp());
 }
@@ -396,15 +400,23 @@ class _GameScreenState extends State<GameScreen> {
         return;
       }
 
-      double speedProgress = ((speed - 0.006) / (0.024 - 0.006)).clamp(0.0, 1.0);
+      double speedProgress = ((speed - 0.006) / (0.024 - 0.006)).clamp(
+        0.0,
+        1.0,
+      );
 
       if (tickCounter >= nextSpawnTick) {
         int itemCount;
-        if (speedProgress < 0.15) itemCount = 1;
-        else if (speedProgress < 0.35) itemCount = 2;
-        else if (speedProgress < 0.60) itemCount = 3;
-        else if (speedProgress < 0.85) itemCount = 4;
-        else itemCount = 5;
+        if (speedProgress < 0.15)
+          itemCount = 1;
+        else if (speedProgress < 0.35)
+          itemCount = 2;
+        else if (speedProgress < 0.60)
+          itemCount = 3;
+        else if (speedProgress < 0.85)
+          itemCount = 4;
+        else
+          itemCount = 5;
 
         List<int> usedLanes = [];
 
@@ -422,18 +434,26 @@ class _GameScreenState extends State<GameScreen> {
           if (coinChance > 0.70) coinChance = 0.70;
 
           ItemType type;
-          if (chance < coinChance) type = ItemType.coin;
-          else if (chance < coinChance + carChance) type = ItemType.car;
-          else if (chance < coinChance + carChance + 0.15) type = ItemType.barricade;
-          else type = ItemType.bush;
+          if (chance < coinChance)
+            type = ItemType.coin;
+          else if (chance < coinChance + carChance)
+            type = ItemType.car;
+          else if (chance < coinChance + carChance + 0.15)
+            type = ItemType.barricade;
+          else
+            type = ItemType.bush;
 
           String? carImg;
           if (type == ItemType.car) {
-            carImg = random.nextBool() ? 'assets/game/car1.png' : 'assets/game/car2.png';
+            carImg = random.nextBool()
+                ? 'assets/game/car1.png'
+                : 'assets/game/car2.png';
           }
 
           double spawnY = -0.18 - (i * 0.08);
-          items.add(FallingItem(lane: lane, y: spawnY, type: type, carImage: carImg));
+          items.add(
+            FallingItem(lane: lane, y: spawnY, type: type, carImage: carImg),
+          );
         }
 
         int baseGap = (48 - (speedProgress * 34)).round();
@@ -491,8 +511,8 @@ class _GameScreenState extends State<GameScreen> {
     isGameOver = true;
     if (score > highestScore) highestScore = score;
     gameTimer?.cancel();
-    
-    // Yahan maine `stopBackgroundMusic()` ko HATA diya hai 
+
+    // Yahan maine `stopBackgroundMusic()` ko HATA diya hai
     // taake game over ke baad bhi music chalta rahe.
     playGameOverSound();
   }
@@ -500,8 +520,10 @@ class _GameScreenState extends State<GameScreen> {
   void handleSwipe(double difference) {
     const double swipeThreshold = 25;
     if (difference.abs() < swipeThreshold) return;
-    if (difference > 0) moveRight();
-    else moveLeft();
+    if (difference > 0)
+      moveRight();
+    else
+      moveLeft();
   }
 
   void handleVerticalSwipe(double difference) {
@@ -618,7 +640,9 @@ class _GameScreenState extends State<GameScreen> {
     final laneWidth = size.width / laneCount;
     final roadWidth = laneWidth * laneCount;
     final double playerJumpOffset = isJumping ? _jumpArc(jumpTick) : 0;
-    final double policeJumpOffset = policeIsJumping ? _jumpArc(policeJumpTick) : 0;
+    final double policeJumpOffset = policeIsJumping
+        ? _jumpArc(policeJumpTick)
+        : 0;
 
     return Scaffold(
       backgroundColor: Colors.green[700],
