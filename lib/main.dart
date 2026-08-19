@@ -59,15 +59,13 @@ class SoundManager {
 
   static Future<void> playCoin() async {
     try {
-      await coin.seek(Duration.zero);
-      await coin.resume();
+      await coin.play(AssetSource('sounds/coin.mp3'), volume: 1.0);
     } catch (_) {}
   }
 
   static Future<void> playJump() async {
     try {
-      await jump.seek(Duration.zero);
-      await jump.resume();
+      await jump.play(AssetSource('sounds/jump.mp3'), volume: 1.0);
     } catch (_) {}
   }
 
@@ -310,6 +308,22 @@ class FallingItem {
   });
 }
 
+// A short-lived floating "+10" style popup shown when a coin is collected.
+class FloatingPopup {
+  double x;
+  double y;
+  int life; // ticks remaining
+  static const int maxLife = 30;
+  final String text;
+
+  FloatingPopup({
+    required this.x,
+    required this.y,
+    required this.text,
+    this.life = maxLife,
+  });
+}
+
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
 
@@ -328,6 +342,7 @@ class _GameScreenState extends State<GameScreen> {
   int policeLaneDelayCounter = 0;
 
   List<FallingItem> items = [];
+  List<FloatingPopup> popups = [];
 
   double speed = 0.006;
 
@@ -372,6 +387,7 @@ class _GameScreenState extends State<GameScreen> {
     gameTimer?.cancel();
 
     items.clear();
+    popups.clear();
 
     score = 0;
     speed = 0.006;
@@ -572,6 +588,9 @@ class _GameScreenState extends State<GameScreen> {
             item.y < playerY + 0.06) {
           if (item.type == ItemType.coin) {
             score += 10;
+            popups.add(
+              FloatingPopup(x: item.lane * 1.0, y: item.y, text: '+10'),
+            );
             items.remove(item);
             SoundManager.playCoin();
           } else if (isJumping) {
@@ -586,6 +605,12 @@ class _GameScreenState extends State<GameScreen> {
       }
 
       items.removeWhere((item) => item.y > 1.1);
+
+      for (var popup in popups) {
+        popup.y -= 0.006;
+        popup.life--;
+      }
+      popups.removeWhere((popup) => popup.life <= 0);
 
       if (tickCounter % 90 == 0) {
         speed += 0.0008;
@@ -778,7 +803,7 @@ class _GameScreenState extends State<GameScreen> {
         : 0;
 
     return Scaffold(
-      backgroundColor: Colors.green[700],
+      backgroundColor: const Color(0xFF2E7D32),
 
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -809,14 +834,56 @@ class _GameScreenState extends State<GameScreen> {
 
         child: Stack(
           children: [
-            Positioned.fill(child: Container(color: Colors.green[700])),
+            // Grass background with a subtle vertical gradient for depth
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.green[800]!, Colors.green[600]!],
+                  ),
+                ),
+              ),
+            ),
 
+            // Road surface with a soft gradient + side curbs for depth
             Positioned(
               left: 0,
               top: 0,
               width: roadWidth,
               height: size.height,
-              child: Container(color: Colors.grey[850]),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      Colors.grey[900]!,
+                      Colors.grey[800]!,
+                      Colors.grey[850]!,
+                      Colors.grey[900]!,
+                    ],
+                    stops: const [0.0, 0.05, 0.95, 1.0],
+                  ),
+                ),
+              ),
+            ),
+
+            // Left/right road curbs (striped)
+            Positioned(
+              left: 0,
+              top: 0,
+              width: 6,
+              height: size.height,
+              child: Container(color: Colors.amber[700]),
+            ),
+            Positioned(
+              left: roadWidth - 6,
+              top: 0,
+              width: 6,
+              height: size.height,
+              child: Container(color: Colors.amber[700]),
             ),
 
             ...List.generate(laneCount - 1, (index) {
@@ -841,6 +908,30 @@ class _GameScreenState extends State<GameScreen> {
               );
             }),
 
+            // Floating "+10" popups when coins are collected
+            ...popups.map((popup) {
+              final opacity = (popup.life / FloatingPopup.maxLife).clamp(
+                0.0,
+                1.0,
+              );
+              return Positioned(
+                left: popup.x * laneWidth + laneWidth / 2 - 20,
+                top: popup.y * size.height,
+                child: Opacity(
+                  opacity: opacity,
+                  child: Text(
+                    popup.text,
+                    style: const TextStyle(
+                      color: Colors.amberAccent,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
+                    ),
+                  ),
+                ),
+              );
+            }),
+
             // Police - lifts up when policeIsJumping is active
             Positioned(
               left: policeLane * laneWidth + laneWidth / 2 - 27,
@@ -860,31 +951,61 @@ class _GameScreenState extends State<GameScreen> {
             ),
 
             Positioned(
-              top: 50,
-              left: 20,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Score: $score',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      shadows: [Shadow(color: Colors.black, blurRadius: 4)],
-                    ),
+              top: 44,
+              left: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    width: 1,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Best: $highestScore',
-                    style: const TextStyle(
-                      color: Colors.amber,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.bolt, color: Colors.white, size: 18),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$score',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.emoji_events,
+                          color: Colors.amber,
+                          size: 15,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$highestScore',
+                          style: const TextStyle(
+                            color: Colors.amber,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
 
