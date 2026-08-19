@@ -400,53 +400,7 @@ class _GameScreenState extends State<GameScreen> {
       updateGame();
     });
 
-    coinPlayer.setPlayerMode(PlayerMode.lowLatency);
-    jumpPlayer.setPlayerMode(PlayerMode.lowLatency);
-
-    playBackgroundMusic();
-  }
-
-  // ==========================================
-  // SOUND HELPERS
-  // ==========================================
-  Future<void> playBackgroundMusic() async {
-    try {
-      await bgPlayer.stop();
-      await bgPlayer.setReleaseMode(ReleaseMode.loop);
-      await bgPlayer.play(AssetSource('sounds/background.mp3'), volume: 0.5);
-    } catch (_) {
-      // Ignore if the asset is missing - game should never crash over sound.
-    }
-  }
-
-  Future<void> stopBackgroundMusic() async {
-    try {
-      await bgPlayer.stop();
-    } catch (_) {}
-  }
-
-  Future<void> playCoinSound() async {
-    try {
-      await coinPlayer.stop();
-      await coinPlayer.play(AssetSource('sounds/coin.mp3'), volume: 1.0);
-    } catch (_) {}
-  }
-
-  Future<void> playJumpSound() async {
-    try {
-      await jumpPlayer.stop();
-      await jumpPlayer.play(AssetSource('sounds/jump.mp3'), volume: 1.0);
-    } catch (_) {}
-  }
-
-  Future<void> playGameOverSound() async {
-    try {
-      await gameOverPlayer.stop();
-      await gameOverPlayer.play(
-        AssetSource('sounds/gameover.mp3'),
-        volume: 1.0,
-      );
-    } catch (_) {}
+    SoundManager.playBackgroundMusic();
   }
 
   void updateGame() {
