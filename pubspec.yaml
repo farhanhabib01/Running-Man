@@ -28,6 +28,9 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
   assets:
+    - assets/game/
+    - assets/game/sounds/
+    - assets/icon/
     - assets/game/character.gif
     - assets/game/police.png
     - assets/game/coin.png
