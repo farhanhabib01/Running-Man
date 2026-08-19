@@ -214,6 +214,49 @@ class _FloatingCloudsState extends State<_FloatingClouds>
   }
 }
 
+// ==========================================
+// RADAR RING PAINTER
+// A dashed circular ring that spins slowly behind the start-screen
+// logo, giving it a "badge / radar" feel that matches the police
+// chase theme.
+// ==========================================
+class _RadarRingPainter extends CustomPainter {
+  final Color color;
+  _RadarRingPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    const dashCount = 20;
+
+    for (int i = 0; i < dashCount; i++) {
+      if (i.isEven) {
+        final startAngle = (2 * pi / dashCount) * i;
+        const sweep = (2 * pi / dashCount) * 0.6;
+        canvas.drawArc(
+          Rect.fromCircle(center: center, radius: radius),
+          startAngle,
+          sweep,
+          false,
+          paint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RadarRingPainter oldDelegate) {
+    return oldDelegate.color != color;
+  }
+}
+
 class StartScreen extends StatefulWidget {
   const StartScreen({super.key});
 
@@ -223,16 +266,19 @@ class StartScreen extends StatefulWidget {
 
 class _StartScreenState extends State<StartScreen>
     with TickerProviderStateMixin {
-  // Character idle bounce
+  // Logo idle bounce
   late AnimationController _bounceController;
   late Animation<double> _bounceAnimation;
 
-  // Entrance animation for title + character when the screen first opens
+  // Entrance animation for title + logo when the screen first opens
   late AnimationController _introController;
   late Animation<double> _titleFade;
   late Animation<double> _titleSlide;
-  late Animation<double> _charFade;
-  late Animation<double> _charScale;
+  late Animation<double> _logoFade;
+  late Animation<double> _logoScale;
+  late Animation<double> _logoRotate;
+  late Animation<double> _bottomFade;
+  late Animation<double> _bottomSlide;
 
   // Gentle pulsing on the PLAY button so it draws the eye once ready
   late AnimationController _pulseController;
@@ -240,6 +286,15 @@ class _StartScreenState extends State<StartScreen>
 
   // Slow ambient background gradient shift
   late AnimationController _bgController;
+
+  // Radar-style ripple rings pulsing outward behind the logo
+  late AnimationController _glowController;
+
+  // Slow continuous rotation for the dashed radar ring
+  late AnimationController _ringRotateController;
+
+  // Shine sweep used on the title text and the loading bar
+  late AnimationController _shimmerController;
 
   double loadingProgress = 0.0;
   bool isLoaded = false;
@@ -254,41 +309,58 @@ class _StartScreenState extends State<StartScreen>
     // so there is zero delay the first time a sound is triggered.
     SoundManager.preload();
 
-    // Character idle bounce animation - loops up and down forever.
     _bounceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
 
-    _bounceAnimation = Tween<double>(begin: 0, end: 16).animate(
+    _bounceAnimation = Tween<double>(begin: 0, end: 14).animate(
       CurvedAnimation(parent: _bounceController, curve: Curves.easeInOut),
     );
 
-    // Entrance: title slides/fades in first, character fades in slightly
-    // after it, giving the screen a staggered, polished opening.
+    // Staggered opening sequence: title first, then the logo spins and
+    // pops in, then the bottom controls slide up into place.
     _introController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 1400),
     )..forward();
 
     _titleFade = CurvedAnimation(
       parent: _introController,
-      curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
+      curve: const Interval(0.0, 0.45, curve: Curves.easeOut),
     );
     _titleSlide = Tween<double>(begin: -30, end: 0).animate(
       CurvedAnimation(
         parent: _introController,
-        curve: const Interval(0.0, 0.6, curve: Curves.easeOutBack),
+        curve: const Interval(0.0, 0.45, curve: Curves.easeOutBack),
       ),
     );
-    _charFade = CurvedAnimation(
+
+    _logoFade = CurvedAnimation(
       parent: _introController,
-      curve: const Interval(0.3, 0.9, curve: Curves.easeOut),
+      curve: const Interval(0.2, 0.75, curve: Curves.easeOut),
     );
-    _charScale = Tween<double>(begin: 0.7, end: 1.0).animate(
+    _logoScale = Tween<double>(begin: 0.3, end: 1.0).animate(
       CurvedAnimation(
         parent: _introController,
-        curve: const Interval(0.3, 0.9, curve: Curves.easeOutBack),
+        curve: const Interval(0.2, 0.85, curve: Curves.elasticOut),
+      ),
+    );
+    _logoRotate = Tween<double>(begin: -0.5, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _introController,
+        curve: const Interval(0.2, 0.75, curve: Curves.easeOutCubic),
+      ),
+    );
+
+    _bottomFade = CurvedAnimation(
+      parent: _introController,
+      curve: const Interval(0.55, 1.0, curve: Curves.easeOut),
+    );
+    _bottomSlide = Tween<double>(begin: 26, end: 0).animate(
+      CurvedAnimation(
+        parent: _introController,
+        curve: const Interval(0.55, 1.0, curve: Curves.easeOutCubic),
       ),
     );
 
@@ -305,6 +377,21 @@ class _StartScreenState extends State<StartScreen>
       vsync: this,
       duration: const Duration(seconds: 5),
     )..repeat(reverse: true);
+
+    _glowController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    )..repeat();
+
+    _ringRotateController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 10),
+    )..repeat();
+
+    _shimmerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat();
 
     // Fake loading bar - fills up over ~2.2 seconds, then reveals Play button.
     const totalDuration = Duration(milliseconds: 2200);
@@ -332,6 +419,9 @@ class _StartScreenState extends State<StartScreen>
     _introController.dispose();
     _pulseController.dispose();
     _bgController.dispose();
+    _glowController.dispose();
+    _ringRotateController.dispose();
+    _shimmerController.dispose();
     loadingTimer?.cancel();
     super.dispose();
   }
@@ -359,17 +449,125 @@ class _StartScreenState extends State<StartScreen>
     );
   }
 
+  // One expanding, fading ripple ring - two of these offset in phase
+  // create a continuous "radar ping" effect behind the logo.
+  Widget _buildGlowRing(double phase) {
+    final t = (_glowController.value + phase) % 1.0;
+    final scale = 0.55 + t * 0.9;
+    final opacity = (1 - t) * 0.32;
+
+    return Opacity(
+      opacity: opacity,
+      child: Transform.scale(
+        scale: scale,
+        child: Container(
+          width: 132,
+          height: 132,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.amberAccent, width: 2),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // The app icon/logo itself, glossy-badge styled, with a graceful
+  // fallback if the asset is missing.
+  Widget _buildLogoImage() {
+    return ClipOval(
+      child: Container(
+        width: 118,
+        height: 118,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.amber.withValues(alpha: 0.55),
+              blurRadius: 22,
+              spreadRadius: 2,
+            ),
+            const BoxShadow(
+              color: Colors.black45,
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Image.asset(
+          'assets/icon/icon.png',
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Colors.amber, Colors.deepOrange],
+                ),
+              ),
+              child: const Icon(
+                Icons.local_police_rounded,
+                color: Colors.white,
+                size: 62,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Widget _buildLoadingBar() {
     return Column(
       key: const ValueKey('loading'),
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(20),
-          child: LinearProgressIndicator(
-            value: loadingProgress,
-            minHeight: 14,
-            backgroundColor: Colors.black26,
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
+          child: SizedBox(
+            height: 14,
+            child: Stack(
+              children: [
+                LinearProgressIndicator(
+                  value: loadingProgress,
+                  minHeight: 14,
+                  backgroundColor: Colors.black26,
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
+                ),
+                // Shine sweep gliding across the bar for a polished,
+                // "still working" feel while it fills up.
+                AnimatedBuilder(
+                  animation: _shimmerController,
+                  builder: (context, child) {
+                    return LayoutBuilder(
+                      builder: (context, constraints) {
+                        final w = constraints.maxWidth;
+                        final dx = -w + (_shimmerController.value * 2 * w);
+                        return ClipRect(
+                          child: Transform.translate(
+                            offset: Offset(dx, 0),
+                            child: Container(
+                              width: w * 0.28,
+                              height: 14,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.white.withValues(alpha: 0),
+                                    Colors.white.withValues(alpha: 0.5),
+                                    Colors.white.withValues(alpha: 0),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ),
         const SizedBox(height: 10),
@@ -445,14 +643,36 @@ class _StartScreenState extends State<StartScreen>
                 children: [
                   const SizedBox(height: 40),
 
+                  // Title with an entrance slide/fade AND a looping
+                  // metallic shine sweep for a more "professional"
+                  // game-logo feel.
                   AnimatedBuilder(
-                    animation: _introController,
+                    animation: Listenable.merge([
+                      _introController,
+                      _shimmerController,
+                    ]),
                     builder: (context, child) {
+                      final shimmerT = _shimmerController.value;
                       return Opacity(
                         opacity: _titleFade.value,
                         child: Transform.translate(
                           offset: Offset(0, _titleSlide.value),
-                          child: child,
+                          child: ShaderMask(
+                            blendMode: BlendMode.srcIn,
+                            shaderCallback: (bounds) {
+                              return LinearGradient(
+                                colors: const [
+                                  Colors.white,
+                                  Colors.amberAccent,
+                                  Colors.white,
+                                ],
+                                stops: const [0.35, 0.5, 0.65],
+                                begin: Alignment(-1 + 2 * shimmerT, 0),
+                                end: Alignment(1 + 2 * shimmerT, 0),
+                              ).createShader(bounds);
+                            },
+                            child: child,
+                          ),
                         ),
                       );
                     },
@@ -470,64 +690,98 @@ class _StartScreenState extends State<StartScreen>
 
                   const Spacer(),
 
-                  // Bouncing character with a staggered fade/scale entrance
+                  // Logo badge: idle bounce + radar ping rings + a
+                  // slowly spinning dashed ring + a spin-and-pop
+                  // entrance the first time the screen appears.
                   AnimatedBuilder(
                     animation: Listenable.merge([
                       _bounceAnimation,
                       _introController,
+                      _glowController,
+                      _ringRotateController,
                     ]),
                     builder: (context, child) {
                       return Opacity(
-                        opacity: _charFade.value,
-                        child: Transform.scale(
-                          scale: _charScale.value,
-                          child: Transform.translate(
-                            offset: Offset(0, -_bounceAnimation.value),
-                            child: child,
+                        opacity: _logoFade.value,
+                        child: Transform.translate(
+                          offset: Offset(0, -_bounceAnimation.value),
+                          child: Transform.rotate(
+                            angle: _logoRotate.value,
+                            child: Transform.scale(
+                              scale: _logoScale.value,
+                              child: SizedBox(
+                                width: 170,
+                                height: 170,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    _buildGlowRing(0.0),
+                                    _buildGlowRing(0.5),
+                                    Transform.rotate(
+                                      angle:
+                                          _ringRotateController.value * 2 * pi,
+                                      child: CustomPaint(
+                                        size: const Size(150, 150),
+                                        painter: _RadarRingPainter(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.35,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    _buildLogoImage(),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       );
                     },
-                    child: Image.asset(
-                      'assets/game/character.gif',
-                      width: 110,
-                      height: 110,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Icon(
-                          Icons.directions_run,
-                          color: Colors.white,
-                          size: 100,
-                        );
-                      },
-                    ),
                   ),
 
                   const Spacer(),
 
                   // Loading bar OR Play button, with a smooth cross-fade
-                  // + scale transition between the two states.
-                  Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: size.width * 0.12,
-                      vertical: 30,
-                    ),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 450),
-                      transitionBuilder: (child, animation) {
-                        return FadeTransition(
-                          opacity: animation,
-                          child: ScaleTransition(
-                            scale: Tween<double>(begin: 0.85, end: 1.0).animate(
-                              CurvedAnimation(
-                                parent: animation,
-                                curve: Curves.easeOutBack,
-                              ),
+                  // + scale transition between the two states, plus a
+                  // slide-up entrance the first time it appears.
+                  AnimatedBuilder(
+                    animation: _introController,
+                    builder: (context, child) {
+                      return Opacity(
+                        opacity: _bottomFade.value,
+                        child: Transform.translate(
+                          offset: Offset(0, _bottomSlide.value),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: size.width * 0.12,
+                        vertical: 30,
+                      ),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 450),
+                        transitionBuilder: (child, animation) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: ScaleTransition(
+                              scale: Tween<double>(begin: 0.85, end: 1.0)
+                                  .animate(
+                                    CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.easeOutBack,
+                                    ),
+                                  ),
+                              child: child,
                             ),
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: isLoaded ? _buildPlayButton() : _buildLoadingBar(),
+                          );
+                        },
+                        child: isLoaded
+                            ? _buildPlayButton()
+                            : _buildLoadingBar(),
+                      ),
                     ),
                   ),
                 ],
