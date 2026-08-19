@@ -8,10 +8,23 @@ import 'package:audioplayers/audioplayers.dart';
 // Preloads every sound once so playback is instant with no
 // first-play decode delay. Uses seek(0) + resume() to replay
 // instead of play(), which avoids reloading the asset each time.
+//
+// Coins use a small rotating pool of players instead of one
+// shared player - this fixes the bug where only the FIRST coin
+// pickup made a sound. Calling play(AssetSource(...)) repeatedly
+// on the same AudioPlayer instance is unreliable in audioplayers;
+// after the first call the player's internal state can get stuck
+// and ignore further play requests. Rotating across several
+// preloaded players avoids that entirely, and also lets rapid
+// back-to-back coin pickups overlap properly.
 // ==========================================
 class SoundManager {
   static final AudioPlayer bg = AudioPlayer();
-  static final AudioPlayer coin = AudioPlayer();
+  static final List<AudioPlayer> coinPool = List.generate(
+    4,
+    (_) => AudioPlayer(),
+  );
+  static int _coinIndex = 0;
   static final AudioPlayer jump = AudioPlayer();
   static final AudioPlayer gameOver = AudioPlayer();
 
@@ -23,18 +36,25 @@ class SoundManager {
     _preloading = true;
 
     try {
-      await coin.setPlayerMode(PlayerMode.lowLatency);
+      for (final p in coinPool) {
+        await p.setPlayerMode(PlayerMode.lowLatency);
+      }
       await jump.setPlayerMode(PlayerMode.lowLatency);
 
       await bg.setReleaseMode(ReleaseMode.loop);
       await bg.setVolume(0.5);
 
-      await Future.wait([
+      final List<Future<void>> loadTasks = [
         bg.setSourceAsset('sounds/background.mp3'),
-        coin.setSourceAsset('sounds/coin.mp3'),
         jump.setSourceAsset('sounds/jump.mp3'),
         gameOver.setSourceAsset('sounds/gameover.mp3'),
-      ]);
+      ];
+
+      for (final p in coinPool) {
+        loadTasks.add(p.setSourceAsset('sounds/coin.mp3'));
+      }
+
+      await Future.wait(loadTasks);
 
       _preloaded = true;
     } catch (_) {
@@ -59,13 +79,17 @@ class SoundManager {
 
   static Future<void> playCoin() async {
     try {
-      await coin.play(AssetSource('sounds/coin.mp3'), volume: 1.0);
+      final player = coinPool[_coinIndex];
+      _coinIndex = (_coinIndex + 1) % coinPool.length;
+      await player.seek(Duration.zero);
+      await player.resume();
     } catch (_) {}
   }
 
   static Future<void> playJump() async {
     try {
-      await jump.play(AssetSource('sounds/jump.mp3'), volume: 1.0);
+      await jump.seek(Duration.zero);
+      await jump.resume();
     } catch (_) {}
   }
 
