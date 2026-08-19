@@ -73,6 +73,19 @@ class _GameScreenState extends State<GameScreen> {
   int nextSpawnTick = 35;
 
   double dragStartX = 0;
+  double dragStartY = 0;
+
+  // ==========================================
+  // JUMP MECHANIC
+  // ==========================================
+  bool isJumping = false;
+  int jumpTick = 0;
+  static const int jumpDuration = 20; // total ticks for one jump
+  static const double jumpHeight = 90; // pixels
+
+  bool policeIsJumping = false;
+  int policeJumpTick = 0;
+  int pendingPoliceJumpDelay = 0; // ticks until police starts jumping too
 
   @override
   void initState() {
@@ -102,6 +115,12 @@ class _GameScreenState extends State<GameScreen> {
 
     nextSpawnTick = 35;
 
+    isJumping = false;
+    jumpTick = 0;
+    policeIsJumping = false;
+    policeJumpTick = 0;
+    pendingPoliceJumpDelay = 0;
+
     gameTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
       updateGame();
     });
@@ -119,6 +138,7 @@ class _GameScreenState extends State<GameScreen> {
         roadOffset = 0;
       }
 
+      // Police chase logic (lane following)
       policeLaneDelayCounter++;
 
       if (policeLaneDelayCounter > 15) {
@@ -135,7 +155,42 @@ class _GameScreenState extends State<GameScreen> {
 
       policeY += (targetPoliceY - policeY) * 0.1;
 
-      if (policeLane == playerLane && policeY - playerY < 0.09 && !isArrested) {
+      // ==========================================
+      // JUMP PROGRESSION - Player
+      // ==========================================
+      if (isJumping) {
+        jumpTick++;
+        if (jumpTick >= jumpDuration) {
+          isJumping = false;
+          jumpTick = 0;
+        }
+      }
+
+      // ==========================================
+      // JUMP PROGRESSION - Police (follows player's jump
+      // after a short delay, mimicking the chase)
+      // ==========================================
+      if (pendingPoliceJumpDelay > 0) {
+        pendingPoliceJumpDelay--;
+        if (pendingPoliceJumpDelay == 0 && !policeIsJumping) {
+          policeIsJumping = true;
+          policeJumpTick = 0;
+        }
+      }
+
+      if (policeIsJumping) {
+        policeJumpTick++;
+        if (policeJumpTick >= jumpDuration) {
+          policeIsJumping = false;
+          policeJumpTick = 0;
+        }
+      }
+
+      // Arrest check (only if neither player nor police mid-air dodge protects them)
+      if (policeLane == playerLane &&
+          policeY - playerY < 0.09 &&
+          !isArrested &&
+          !isJumping) {
         gameOver();
         return;
       }
@@ -223,6 +278,11 @@ class _GameScreenState extends State<GameScreen> {
         item.y += speed;
       }
 
+      // ==========================================
+      // COLLISION - jumping lets you pass over
+      // barricades, bushes, and cars while mid-air.
+      // Coins are still collected even while jumping.
+      // ==========================================
       for (var item in List<FallingItem>.from(items)) {
         if (item.lane == playerLane &&
             item.y > playerY - 0.06 &&
@@ -230,6 +290,9 @@ class _GameScreenState extends State<GameScreen> {
           if (item.type == ItemType.coin) {
             score += 10;
             items.remove(item);
+          } else if (isJumping) {
+            // Successfully jumped over the hurdle - no collision.
+            // (item stays, will be removed once it passes off-screen)
           } else {
             arrestPlayer();
             return;
@@ -276,6 +339,10 @@ class _GameScreenState extends State<GameScreen> {
     gameTimer?.cancel();
   }
 
+  // ==========================================
+  // TOUCH / SWIPE CONTROLS
+  // ==========================================
+
   void handleSwipe(double difference) {
     const double swipeThreshold = 25;
 
@@ -288,6 +355,28 @@ class _GameScreenState extends State<GameScreen> {
     } else {
       moveLeft();
     }
+  }
+
+  void handleVerticalSwipe(double difference) {
+    const double swipeThreshold = 25;
+
+    // Negative difference means the finger moved UP the screen.
+    if (difference < -swipeThreshold) {
+      triggerJump();
+    }
+  }
+
+  void triggerJump() {
+    if (isGameOver || isJumping) return;
+
+    setState(() {
+      isJumping = true;
+      jumpTick = 0;
+
+      // Police will mimic the jump a short moment later,
+      // like it's reacting to the player.
+      pendingPoliceJumpDelay = 6;
+    });
   }
 
   void moveLeft() {
@@ -353,7 +442,7 @@ class _GameScreenState extends State<GameScreen> {
 
       case ItemType.car:
         return safeImage(
-          item.carImage ?? 'assets/game/car1.jpg',
+          item.carImage ?? 'assets/game/car1.png',
           width: 80,
           height: 120,
         );
@@ -377,6 +466,13 @@ class _GameScreenState extends State<GameScreen> {
     }
   }
 
+  // Calculates how many pixels to lift a jumping character,
+  // using a smooth sine arc: 0 -> up -> 0 across jumpDuration ticks.
+  double _jumpArc(int tick) {
+    double progress = tick / jumpDuration;
+    return sin(pi * progress) * jumpHeight;
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
@@ -384,6 +480,11 @@ class _GameScreenState extends State<GameScreen> {
     final laneWidth = size.width / laneCount;
 
     final roadWidth = laneWidth * laneCount;
+
+    final double playerJumpOffset = isJumping ? _jumpArc(jumpTick) : 0;
+    final double policeJumpOffset = policeIsJumping
+        ? _jumpArc(policeJumpTick)
+        : 0;
 
     return Scaffold(
       backgroundColor: Colors.green[700],
@@ -401,6 +502,18 @@ class _GameScreenState extends State<GameScreen> {
           final difference = endX - dragStartX;
 
           handleSwipe(difference);
+        },
+
+        onVerticalDragStart: (details) {
+          dragStartY = details.localPosition.dy;
+        },
+
+        onVerticalDragEnd: (details) {
+          final endY = details.localPosition.dy;
+
+          final difference = endY - dragStartY;
+
+          handleVerticalSwipe(difference);
         },
 
         child: Stack(
@@ -437,15 +550,17 @@ class _GameScreenState extends State<GameScreen> {
               );
             }),
 
+            // Police - lifts up when policeIsJumping is active
             Positioned(
               left: policeLane * laneWidth + laneWidth / 2 - 27,
-              top: policeY * size.height,
+              top: policeY * size.height - policeJumpOffset,
               child: safeImage('assets/game/police.png', width: 55, height: 55),
             ),
 
+            // Player - lifts up when isJumping is active
             Positioned(
               left: playerLane * laneWidth + laneWidth / 2 - 30,
-              top: playerY * size.height,
+              top: playerY * size.height - playerJumpOffset,
               child: safeImage(
                 'assets/game/character.gif',
                 width: 60,
@@ -492,7 +607,9 @@ class _GameScreenState extends State<GameScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        isArrested ? 'GIRIFTAR HO GAYE! 🚔' : 'PAKRAY GAYE! 🚨',
+                        isArrested
+                            ? 'GIRIFTAR HO GAYE! \u{1F694}'
+                            : 'PAKRAY GAYE! \u{1F6A8}',
                         style: const TextStyle(
                           color: Colors.red,
                           fontSize: 32,
@@ -520,7 +637,7 @@ class _GameScreenState extends State<GameScreen> {
                       const SizedBox(height: 10),
                       if (score >= highestScore)
                         const Text(
-                          '🏆 NEW HIGH SCORE! 🏆',
+                          '\u{1F3C6} NEW HIGH SCORE! \u{1F3C6}',
                           style: TextStyle(
                             color: Colors.greenAccent,
                             fontSize: 20,
