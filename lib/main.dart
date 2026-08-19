@@ -119,7 +119,6 @@ class _GameScreenState extends State<GameScreen> {
         roadOffset = 0;
       }
 
-      // Police chase logic
       policeLaneDelayCounter++;
 
       if (policeLaneDelayCounter > 15) {
@@ -141,35 +140,26 @@ class _GameScreenState extends State<GameScreen> {
         return;
       }
 
-      // ==========================================
-      // SPEED PROGRESS
-      // ==========================================
-
       double speedProgress = ((speed - 0.006) / (0.024 - 0.006)).clamp(
         0.0,
         1.0,
       );
 
-      // ==========================================
-      // SPAWN ITEMS
-      // ==========================================
-
       if (tickCounter >= nextSpawnTick) {
-        // Number of items increases gradually
         int itemCount;
 
-        if (speedProgress < 0.20) {
+        if (speedProgress < 0.15) {
           itemCount = 1;
-        } else if (speedProgress < 0.45) {
+        } else if (speedProgress < 0.35) {
           itemCount = 2;
-        } else if (speedProgress < 0.70) {
+        } else if (speedProgress < 0.60) {
           itemCount = 3;
-        } else {
+        } else if (speedProgress < 0.85) {
           itemCount = 4;
+        } else {
+          itemCount = 5;
         }
 
-        // Prevent all three lanes from being blocked
-        // by dangerous hurdles at the same time.
         List<int> usedLanes = [];
 
         for (int i = 0; i < itemCount; i++) {
@@ -183,15 +173,12 @@ class _GameScreenState extends State<GameScreen> {
 
           double chance = random.nextDouble();
 
-          // Car probability gradually increases
           double carChance = (0.25 + (speed - 0.006) * 6).clamp(0.25, 0.45);
 
-          // Coin probability also increases (more coins overall now)
-          double coinChance = 0.45 + (speedProgress * 0.20);
+          double coinChance = 0.45 + (speedProgress * 0.25);
 
-          // Keep total probability safe
-          if (coinChance > 0.65) {
-            coinChance = 0.65;
+          if (coinChance > 0.70) {
+            coinChance = 0.70;
           }
 
           ItemType type;
@@ -214,8 +201,6 @@ class _GameScreenState extends State<GameScreen> {
                 : 'assets/game/car2.png';
           }
 
-          // Slight horizontal timing difference
-          // between multiple items.
           double spawnY = -0.18 - (i * 0.08);
 
           items.add(
@@ -223,14 +208,10 @@ class _GameScreenState extends State<GameScreen> {
           );
         }
 
-        // ==========================================
-        // HURDLE FREQUENCY INCREASES WITH SPEED
-        // ==========================================
+        int baseGap = (48 - (speedProgress * 34)).round();
 
-        int baseGap = (48 - (speedProgress * 32)).round();
-
-        if (baseGap < 14) {
-          baseGap = 14;
+        if (baseGap < 12) {
+          baseGap = 12;
         }
 
         int randomVariance = random.nextInt(10);
@@ -238,17 +219,9 @@ class _GameScreenState extends State<GameScreen> {
         nextSpawnTick = tickCounter + baseGap + randomVariance;
       }
 
-      // ==========================================
-      // MOVE ITEMS
-      // ==========================================
-
       for (var item in items) {
         item.y += speed;
       }
-
-      // ==========================================
-      // COLLISION
-      // ==========================================
 
       for (var item in List<FallingItem>.from(items)) {
         if (item.lane == playerLane &&
@@ -266,10 +239,6 @@ class _GameScreenState extends State<GameScreen> {
 
       items.removeWhere((item) => item.y > 1.1);
 
-      // ==========================================
-      // GRADUAL SPEED INCREASE
-      // ==========================================
-
       if (tickCounter % 90 == 0) {
         speed += 0.0008;
 
@@ -278,15 +247,10 @@ class _GameScreenState extends State<GameScreen> {
         }
       }
 
-      // ==========================================
-      // SCORE
-      // ==========================================
-
       if (tickCounter % 15 == 0) {
         score += 1;
       }
 
-      // Highest score
       if (score > highestScore) {
         highestScore = score;
       }
@@ -311,10 +275,6 @@ class _GameScreenState extends State<GameScreen> {
 
     gameTimer?.cancel();
   }
-
-  // ==========================================
-  // TOUCH / SWIPE CONTROLS
-  // ==========================================
 
   void handleSwipe(double difference) {
     const double swipeThreshold = 25;
@@ -358,17 +318,44 @@ class _GameScreenState extends State<GameScreen> {
     super.dispose();
   }
 
+  Widget safeImage(
+    String path, {
+    required double width,
+    required double height,
+    BoxFit fit = BoxFit.contain,
+  }) {
+    return Image.asset(
+      path,
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          width: width,
+          height: height,
+          decoration: BoxDecoration(
+            color: Colors.redAccent,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: Colors.black, width: 2),
+          ),
+          child: const Center(
+            child: Icon(Icons.broken_image, color: Colors.white, size: 20),
+          ),
+        );
+      },
+    );
+  }
+
   Widget buildItemWidget(FallingItem item) {
     switch (item.type) {
       case ItemType.coin:
-        return Image.asset('assets/game/coin.png', width: 45, height: 45);
+        return safeImage('assets/game/coin.png', width: 45, height: 45);
 
       case ItemType.car:
-        return Image.asset(
+        return safeImage(
           item.carImage ?? 'assets/game/car1.jpg',
           width: 80,
           height: 120,
-          fit: BoxFit.contain,
         );
 
       case ItemType.barricade:
@@ -386,7 +373,7 @@ class _GameScreenState extends State<GameScreen> {
         );
 
       case ItemType.bush:
-        return Image.asset('assets/game/bushes.png', width: 55, height: 55);
+        return safeImage('assets/game/bushes.png', width: 55, height: 55);
     }
   }
 
@@ -418,10 +405,8 @@ class _GameScreenState extends State<GameScreen> {
 
         child: Stack(
           children: [
-            // Background
             Positioned.fill(child: Container(color: Colors.green[700])),
 
-            // Road
             Positioned(
               left: 0,
               top: 0,
@@ -430,7 +415,6 @@ class _GameScreenState extends State<GameScreen> {
               child: Container(color: Colors.grey[850]),
             ),
 
-            // Lane dividers
             ...List.generate(laneCount - 1, (index) {
               double dividerLeft = (index + 1) * laneWidth;
 
@@ -445,7 +429,6 @@ class _GameScreenState extends State<GameScreen> {
               );
             }),
 
-            // Falling items
             ...items.map((item) {
               return Positioned(
                 left: item.lane * laneWidth + laneWidth / 2 - 40,
@@ -454,29 +437,22 @@ class _GameScreenState extends State<GameScreen> {
               );
             }),
 
-            // Police
             Positioned(
               left: policeLane * laneWidth + laneWidth / 2 - 27,
               top: policeY * size.height,
-              child: Image.asset(
-                'assets/game/police.png',
-                width: 55,
-                height: 55,
-              ),
+              child: safeImage('assets/game/police.png', width: 55, height: 55),
             ),
 
-            // Player
             Positioned(
               left: playerLane * laneWidth + laneWidth / 2 - 30,
               top: playerY * size.height,
-              child: Image.asset(
+              child: safeImage(
                 'assets/game/character.gif',
                 width: 60,
                 height: 60,
               ),
             ),
 
-            // Score and Highest Score
             Positioned(
               top: 50,
               left: 20,
@@ -492,9 +468,7 @@ class _GameScreenState extends State<GameScreen> {
                       shadows: [Shadow(color: Colors.black, blurRadius: 4)],
                     ),
                   ),
-
                   const SizedBox(height: 4),
-
                   Text(
                     'Best: $highestScore',
                     style: const TextStyle(
@@ -508,7 +482,6 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ),
 
-            // Game Over
             if (isGameOver)
               Container(
                 color: Colors.black87,
@@ -527,9 +500,7 @@ class _GameScreenState extends State<GameScreen> {
                         ),
                         textAlign: TextAlign.center,
                       ),
-
                       const SizedBox(height: 10),
-
                       Text(
                         'Score: $score',
                         style: const TextStyle(
@@ -537,9 +508,7 @@ class _GameScreenState extends State<GameScreen> {
                           fontSize: 24,
                         ),
                       ),
-
                       const SizedBox(height: 8),
-
                       Text(
                         'Highest Score: $highestScore',
                         style: const TextStyle(
@@ -548,9 +517,7 @@ class _GameScreenState extends State<GameScreen> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-
                       const SizedBox(height: 10),
-
                       if (score >= highestScore)
                         const Text(
                           '🏆 NEW HIGH SCORE! 🏆',
@@ -560,9 +527,7 @@ class _GameScreenState extends State<GameScreen> {
                             fontWeight: FontWeight.bold,
                           ),
                         ),
-
                       const SizedBox(height: 30),
-
                       ElevatedButton.icon(
                         onPressed: restartGame,
                         icon: const Icon(Icons.refresh),
