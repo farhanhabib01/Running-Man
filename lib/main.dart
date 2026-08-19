@@ -26,6 +26,7 @@ class FallingItem {
   double y;
   ItemType type;
   String? carImage;
+  bool dodged = false; // true once the player has jumped over this hurdle
 
   FallingItem({
     required this.lane,
@@ -284,6 +285,12 @@ class _GameScreenState extends State<GameScreen> {
       // Coins are still collected even while jumping.
       // ==========================================
       for (var item in List<FallingItem>.from(items)) {
+        if (item.dodged) {
+          // Already jumped over this one earlier - permanently safe,
+          // even after the jump animation has ended.
+          continue;
+        }
+
         if (item.lane == playerLane &&
             item.y > playerY - 0.06 &&
             item.y < playerY + 0.06) {
@@ -291,8 +298,9 @@ class _GameScreenState extends State<GameScreen> {
             score += 10;
             items.remove(item);
           } else if (isJumping) {
-            // Successfully jumped over the hurdle - no collision.
-            // (item stays, will be removed once it passes off-screen)
+            // Successfully jumped over the hurdle - mark it as dodged
+            // so it can never cause an arrest again, even after landing.
+            item.dodged = true;
           } else {
             arrestPlayer();
             return;
