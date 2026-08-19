@@ -14,7 +14,179 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Runner Chase Final TEST Game version v1.0.0',
       debugShowCheckedModeBanner: false,
-      home: const GameScreen(),
+      home: const StartScreen(),
+    );
+  }
+}
+
+class StartScreen extends StatefulWidget {
+  const StartScreen({super.key});
+
+  @override
+  State<StartScreen> createState() => _StartScreenState();
+}
+
+class _StartScreenState extends State<StartScreen>
+    with TickerProviderStateMixin {
+  late AnimationController _bounceController;
+  late Animation<double> _bounceAnimation;
+
+  double loadingProgress = 0.0;
+  bool isLoaded = false;
+
+  Timer? loadingTimer;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Character idle bounce animation - loops up and down forever.
+    _bounceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..repeat(reverse: true);
+
+    _bounceAnimation = Tween<double>(begin: 0, end: 16).animate(
+      CurvedAnimation(parent: _bounceController, curve: Curves.easeInOut),
+    );
+
+    // Fake loading bar - fills up over ~2.2 seconds, then reveals Play button.
+    const totalDuration = Duration(milliseconds: 2200);
+    const tickTime = Duration(milliseconds: 30);
+    final totalTicks = totalDuration.inMilliseconds / tickTime.inMilliseconds;
+    int currentTick = 0;
+
+    loadingTimer = Timer.periodic(tickTime, (timer) {
+      currentTick++;
+
+      setState(() {
+        loadingProgress = (currentTick / totalTicks).clamp(0.0, 1.0);
+
+        if (loadingProgress >= 1.0) {
+          isLoaded = true;
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _bounceController.dispose();
+    loadingTimer?.cancel();
+    super.dispose();
+  }
+
+  void goToGame() {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (context) => const GameScreen()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
+    return Scaffold(
+      backgroundColor: Colors.green[700],
+      body: SafeArea(
+        child: Column(
+          children: [
+            const SizedBox(height: 40),
+
+            const Text(
+              'RUNNER CHASE',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 34,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 2,
+                shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
+              ),
+            ),
+
+            const Spacer(),
+
+            // Bouncing character
+            AnimatedBuilder(
+              animation: _bounceAnimation,
+              builder: (context, child) {
+                return Transform.translate(
+                  offset: Offset(0, -_bounceAnimation.value),
+                  child: child,
+                );
+              },
+              child: Image.asset(
+                'assets/game/character.gif',
+                width: 110,
+                height: 110,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(
+                    Icons.directions_run,
+                    color: Colors.white,
+                    size: 100,
+                  );
+                },
+              ),
+            ),
+
+            const Spacer(),
+
+            // Loading bar OR Play button, depending on state
+            Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: size.width * 0.12,
+                vertical: 30,
+              ),
+              child: isLoaded
+                  ? ElevatedButton.icon(
+                      onPressed: goToGame,
+                      icon: const Icon(Icons.play_arrow, size: 28),
+                      label: const Text(
+                        'PLAY',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        minimumSize: const Size(double.infinity, 55),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
+                    )
+                  : Column(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: LinearProgressIndicator(
+                            value: loadingProgress,
+                            minHeight: 14,
+                            backgroundColor: Colors.black26,
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                              Colors.amber,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Loading... ${(loadingProgress * 100).toInt()}%',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
