@@ -3,6 +3,82 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 
+// ==========================================
+// SOUND MANAGER
+// Preloads every sound once so playback is instant with no
+// first-play decode delay. Uses seek(0) + resume() to replay
+// instead of play(), which avoids reloading the asset each time.
+// ==========================================
+class SoundManager {
+  static final AudioPlayer bg = AudioPlayer();
+  static final AudioPlayer coin = AudioPlayer();
+  static final AudioPlayer jump = AudioPlayer();
+  static final AudioPlayer gameOver = AudioPlayer();
+
+  static bool _preloaded = false;
+  static bool _preloading = false;
+
+  static Future<void> preload() async {
+    if (_preloaded || _preloading) return;
+    _preloading = true;
+
+    try {
+      await coin.setPlayerMode(PlayerMode.lowLatency);
+      await jump.setPlayerMode(PlayerMode.lowLatency);
+
+      await bg.setReleaseMode(ReleaseMode.loop);
+      await bg.setVolume(0.5);
+
+      await Future.wait([
+        bg.setSourceAsset('sounds/background.mp3'),
+        coin.setSourceAsset('sounds/coin.mp3'),
+        jump.setSourceAsset('sounds/jump.mp3'),
+        gameOver.setSourceAsset('sounds/gameover.mp3'),
+      ]);
+
+      _preloaded = true;
+    } catch (_) {
+      // If any asset is missing, the game should still run silently.
+    } finally {
+      _preloading = false;
+    }
+  }
+
+  static Future<void> playBackgroundMusic() async {
+    try {
+      await bg.seek(Duration.zero);
+      await bg.resume();
+    } catch (_) {}
+  }
+
+  static Future<void> stopBackgroundMusic() async {
+    try {
+      await bg.stop();
+    } catch (_) {}
+  }
+
+  static Future<void> playCoin() async {
+    try {
+      await coin.seek(Duration.zero);
+      await coin.resume();
+    } catch (_) {}
+  }
+
+  static Future<void> playJump() async {
+    try {
+      await jump.seek(Duration.zero);
+      await jump.resume();
+    } catch (_) {}
+  }
+
+  static Future<void> playGameOver() async {
+    try {
+      await gameOver.seek(Duration.zero);
+      await gameOver.resume();
+    } catch (_) {}
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -61,6 +137,10 @@ class _StartScreenState extends State<StartScreen>
   @override
   void initState() {
     super.initState();
+
+    // Preload all sounds now, in parallel with the loading bar below,
+    // so there is zero delay the first time a sound is triggered.
+    SoundManager.preload();
 
     // Character idle bounce animation - loops up and down forever.
     _bounceController = AnimationController(
@@ -281,14 +361,6 @@ class _GameScreenState extends State<GameScreen> {
   bool policeIsJumping = false;
   int policeJumpTick = 0;
   int pendingPoliceJumpDelay = 0; // ticks until police starts jumping too
-
-  // ==========================================
-  // SOUND
-  // ==========================================
-  final AudioPlayer bgPlayer = AudioPlayer();
-  final AudioPlayer coinPlayer = AudioPlayer();
-  final AudioPlayer jumpPlayer = AudioPlayer();
-  final AudioPlayer gameOverPlayer = AudioPlayer();
 
   @override
   void initState() {
@@ -547,7 +619,7 @@ class _GameScreenState extends State<GameScreen> {
           if (item.type == ItemType.coin) {
             score += 10;
             items.remove(item);
-            playCoinSound();
+            SoundManager.playCoin();
           } else if (isJumping) {
             // Successfully jumped over the hurdle - mark it as dodged
             // so it can never cause an arrest again, even after landing.
@@ -599,7 +671,7 @@ class _GameScreenState extends State<GameScreen> {
 
     // Background music keeps playing under the game-over screen -
     // only the gameover sting plays on top of it, it doesn't replace it.
-    playGameOverSound();
+    SoundManager.playGameOver();
   }
 
   // ==========================================
@@ -641,7 +713,7 @@ class _GameScreenState extends State<GameScreen> {
       pendingPoliceJumpDelay = 6;
     });
 
-    playJumpSound();
+    SoundManager.playJump();
   }
 
   void moveLeft() {
@@ -669,10 +741,6 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void dispose() {
     gameTimer?.cancel();
-    bgPlayer.dispose();
-    coinPlayer.dispose();
-    jumpPlayer.dispose();
-    gameOverPlayer.dispose();
     super.dispose();
   }
 
