@@ -36,3 +36,7 @@ flutter:
     - assets/game/car1.png
     - assets/game/car2.png
     - assets/game/bushes.png
+    - assets/sounds/coin.mp3
+    - assets/sounds/jump.mp3
+    - assets/sounds/gameover.mp3
+    - assets/sounds/background.mp3

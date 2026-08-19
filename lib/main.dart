@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 void main() {
   runApp(const MyApp());
@@ -18,6 +19,7 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+
 
 class StartScreen extends StatefulWidget {
   const StartScreen({super.key});
@@ -260,6 +262,14 @@ class _GameScreenState extends State<GameScreen> {
   int policeJumpTick = 0;
   int pendingPoliceJumpDelay = 0; // ticks until police starts jumping too
 
+  // ==========================================
+  // SOUND
+  // ==========================================
+  final AudioPlayer bgPlayer = AudioPlayer();
+  final AudioPlayer coinPlayer = AudioPlayer();
+  final AudioPlayer jumpPlayer = AudioPlayer();
+  final AudioPlayer gameOverPlayer = AudioPlayer();
+
   @override
   void initState() {
     super.initState();
@@ -297,6 +307,48 @@ class _GameScreenState extends State<GameScreen> {
     gameTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
       updateGame();
     });
+
+    playBackgroundMusic();
+  }
+
+  // ==========================================
+  // SOUND HELPERS
+  // ==========================================
+  Future<void> playBackgroundMusic() async {
+    try {
+      await bgPlayer.stop();
+      await bgPlayer.setReleaseMode(ReleaseMode.loop);
+      await bgPlayer.play(AssetSource('sounds/background.mp3'), volume: 0.5);
+    } catch (_) {
+      // Ignore if the asset is missing - game should never crash over sound.
+    }
+  }
+
+  Future<void> stopBackgroundMusic() async {
+    try {
+      await bgPlayer.stop();
+    } catch (_) {}
+  }
+
+  Future<void> playCoinSound() async {
+    try {
+      await coinPlayer.stop();
+      await coinPlayer.play(AssetSource('sounds/coin.mp3'), volume: 1.0);
+    } catch (_) {}
+  }
+
+  Future<void> playJumpSound() async {
+    try {
+      await jumpPlayer.stop();
+      await jumpPlayer.play(AssetSource('sounds/jump.mp3'), volume: 1.0);
+    } catch (_) {}
+  }
+
+  Future<void> playGameOverSound() async {
+    try {
+      await gameOverPlayer.stop();
+      await gameOverPlayer.play(AssetSource('sounds/gameover.mp3'), volume: 1.0);
+    } catch (_) {}
   }
 
   void updateGame() {
@@ -469,6 +521,7 @@ class _GameScreenState extends State<GameScreen> {
           if (item.type == ItemType.coin) {
             score += 10;
             items.remove(item);
+            playCoinSound();
           } else if (isJumping) {
             // Successfully jumped over the hurdle - mark it as dodged
             // so it can never cause an arrest again, even after landing.
@@ -517,6 +570,9 @@ class _GameScreenState extends State<GameScreen> {
     }
 
     gameTimer?.cancel();
+
+    stopBackgroundMusic();
+    playGameOverSound();
   }
 
   // ==========================================
@@ -557,6 +613,8 @@ class _GameScreenState extends State<GameScreen> {
       // like it's reacting to the player.
       pendingPoliceJumpDelay = 6;
     });
+
+    playJumpSound();
   }
 
   void moveLeft() {
@@ -584,6 +642,10 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void dispose() {
     gameTimer?.cancel();
+    bgPlayer.dispose();
+    coinPlayer.dispose();
+    jumpPlayer.dispose();
+    gameOverPlayer.dispose();
     super.dispose();
   }
 
@@ -662,9 +724,8 @@ class _GameScreenState extends State<GameScreen> {
     final roadWidth = laneWidth * laneCount;
 
     final double playerJumpOffset = isJumping ? _jumpArc(jumpTick) : 0;
-    final double policeJumpOffset = policeIsJumping
-        ? _jumpArc(policeJumpTick)
-        : 0;
+    final double policeJumpOffset =
+        policeIsJumping ? _jumpArc(policeJumpTick) : 0;
 
     return Scaffold(
       backgroundColor: Colors.green[700],
@@ -734,7 +795,11 @@ class _GameScreenState extends State<GameScreen> {
             Positioned(
               left: policeLane * laneWidth + laneWidth / 2 - 27,
               top: policeY * size.height - policeJumpOffset,
-              child: safeImage('assets/game/police.png', width: 55, height: 55),
+              child: safeImage(
+                'assets/game/police.png',
+                width: 55,
+                height: 55,
+              ),
             ),
 
             // Player - lifts up when isJumping is active
@@ -787,9 +852,7 @@ class _GameScreenState extends State<GameScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        isArrested
-                            ? 'GIRIFTAR HO GAYE! \u{1F694}'
-                            : 'PAKRAY GAYE! \u{1F6A8}',
+                        isArrested ? 'GIRIFTAR HO GAYE! \u{1F694}' : 'PAKRAY GAYE! \u{1F6A8}',
                         style: const TextStyle(
                           color: Colors.red,
                           fontSize: 32,
