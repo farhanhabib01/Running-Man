@@ -14,6 +14,24 @@
 ![Dart](https://img.shields.io/badge/Dart-Language-0175C2?style=for-the-badge&logo=dart)
 ![Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android)
 ![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
+[![pub package](https://img.shields.io/pub/v/runner_chase_utils.svg?style=for-the-badge)](https://pub.dev/packages/runner_chase_utils)
+
+</p>
+
+<p align="center">
+  <strong>A fast-paced endless runner built with Flutter & Dart</strong>
+</p>
+
+<p align="center">
+  Swipe. Dodge. Collect. Escape the police. Beat your highest score.
+</p>
+
+<p align="center">
+
+![Flutter](https://img.shields.io/badge/Flutter-Framework-02569B?style=for-the-badge&logo=flutter)
+![Dart](https://img.shields.io/badge/Dart-Language-0175C2?style=for-the-badge&logo=dart)
+![Android](https://img.shields.io/badge/Platform-Android-3DDC84?style=for-the-badge&logo=android)
+![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
 </p>
 

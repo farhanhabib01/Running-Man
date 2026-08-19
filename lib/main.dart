@@ -493,7 +493,7 @@ class _GameScreenState extends State<GameScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: 4),
+                  c SizedBox(height: 4),
 
                   Text(
                     'Best: $highestScore',

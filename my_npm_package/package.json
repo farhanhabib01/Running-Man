@@ -1,0 +1,19 @@
+{
+  "name": "@farhanhabib01/runner-chase-utils",
+  "version": "1.0.0",
+  "description": "Utility package for Runner Chase Flutter game project.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/farhanhabib01/my_app.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "keywords": [],
+  "author": "M. Farhan Habib",
+  "license": "MIT"
+}
