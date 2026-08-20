@@ -58,6 +58,7 @@ class SoundManager {
         await p.setPlayerMode(PlayerMode.lowLatency);
       }
       await jump.setPlayerMode(PlayerMode.lowLatency);
+      await gameOver.setPlayerMode(PlayerMode.lowLatency);
 
       await bg.setReleaseMode(ReleaseMode.loop);
       await bg.setVolume(0.5);
@@ -106,26 +107,36 @@ class SoundManager {
     } catch (_) {}
   }
 
+  // FIX (coin / jump / gameover sound stops working after a while,
+  // or after restarting the game):
+  // seek(0)+resume() only reliably replays a player that is already
+  // in a "started then paused" state. In practice (especially after
+  // the game restarts or many rapid replays happen) these effect
+  // players can end up in a state where resume() silently does
+  // nothing. stop() + play(source) always resets the player to a
+  // clean state first and then starts fresh, so it works every
+  // single time regardless of what happened before - this is the
+  // reliable pattern for one-shot sound effects.
   static Future<void> playCoin() async {
     try {
       final player = coinPool[_coinIndex];
       _coinIndex = (_coinIndex + 1) % coinPool.length;
-      await player.seek(Duration.zero);
-      await player.resume();
+      await player.stop();
+      await player.play(AssetSource('sounds/coin.mp3'));
     } catch (_) {}
   }
 
   static Future<void> playJump() async {
     try {
-      await jump.seek(Duration.zero);
-      await jump.resume();
+      await jump.stop();
+      await jump.play(AssetSource('sounds/jump.mp3'));
     } catch (_) {}
   }
 
   static Future<void> playGameOver() async {
     try {
-      await gameOver.seek(Duration.zero);
-      await gameOver.resume();
+      await gameOver.stop();
+      await gameOver.play(AssetSource('sounds/gameover.mp3'));
     } catch (_) {}
   }
 }
@@ -1176,6 +1187,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   _gameOverController; // entrance for the game-over card
   late AnimationController _gameOverPulseController; // subtle card glow/pulse
 
+  // Level-up banner: pops in with the new level number whenever the
+  // player crosses into a new level, then fades back out on its own.
+  late AnimationController _levelUpController;
+
   @override
   void initState() {
     super.initState();
@@ -1226,6 +1241,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 1100),
     )..repeat(reverse: true);
 
+    _levelUpController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 1400),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
+
     startGame();
   }
 
@@ -1264,6 +1287,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _shakeController.reset();
     _scoreBumpController.reset();
     _gameOverController.reset();
+    _levelUpController.reset();
 
     gameTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
       updateGame();
@@ -1483,6 +1507,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       final newLevel = (coins ~/ 10) + 1;
       if (newLevel != level) {
         level = newLevel;
+        _levelUpController.forward(from: 0);
       }
 
       if (score > highestScore) {
@@ -1605,6 +1630,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _scoreBumpController.dispose();
     _gameOverController.dispose();
     _gameOverPulseController.dispose();
+    _levelUpController.dispose();
     super.dispose();
   }
 
@@ -1662,7 +1688,35 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   Widget buildItemWidget(FallingItem item) {
     switch (item.type) {
       case ItemType.coin:
-        return safeImage('assets/game/coin.png', width: 45, height: 45);
+        // Gentle bob + a soft glow ring behind the coin, phase offset
+        // per-coin (via its hashCode) so a row of coins doesn't bob
+        // in perfect unison - reads as more alive/professional.
+        final wobble = sin((tickCounter + item.hashCode) * 0.15) * 4;
+        final glowPulse = (sin((tickCounter + item.hashCode) * 0.08) + 1) / 2;
+        return Transform.translate(
+          offset: Offset(0, wobble),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      Colors.amberAccent.withValues(
+                        alpha: 0.22 + glowPulse * 0.18,
+                      ),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+              safeImage('assets/game/coin.png', width: 45, height: 45),
+            ],
+          ),
+        );
 
       case ItemType.car:
         return safeImage(
@@ -1920,6 +1974,54 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 );
               }),
 
+              // Ground shadows for player and police - grounds them
+              // visually and squashes/fades while airborne, a classic
+              // runner-game polish touch.
+              Positioned(
+                left: policeLane * laneWidth + laneWidth / 2 - 22,
+                top: policeY * size.height - policeJumpOffset + 48,
+                child: Opacity(
+                  opacity: (0.30 * (1 - (policeJumpOffset / jumpHeight) * 0.75))
+                      .clamp(0.06, 0.30),
+                  child: Transform.scale(
+                    scale: (1 - (policeJumpOffset / jumpHeight) * 0.4).clamp(
+                      0.5,
+                      1.0,
+                    ),
+                    child: Container(
+                      width: 40,
+                      height: 11,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: playerLane * laneWidth + laneWidth / 2 - 24,
+                top: playerY * size.height - playerJumpOffset + 52,
+                child: Opacity(
+                  opacity: (0.32 * (1 - (playerJumpOffset / jumpHeight) * 0.75))
+                      .clamp(0.06, 0.32),
+                  child: Transform.scale(
+                    scale: (1 - (playerJumpOffset / jumpHeight) * 0.4).clamp(
+                      0.5,
+                      1.0,
+                    ),
+                    child: Container(
+                      width: 44,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
               // Police - lifts up when policeIsJumping is active
               Positioned(
                 left: policeLane * laneWidth + laneWidth / 2 - 27,
@@ -1928,6 +2030,36 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   'assets/game/police.png',
                   width: 55,
                   height: 55,
+                ),
+              ),
+
+              // Flashing red/blue siren light above the police car -
+              // sells the "pursuit" theme at a glance.
+              Positioned(
+                left: policeLane * laneWidth + laneWidth / 2 - 10,
+                top: policeY * size.height - policeJumpOffset - 12,
+                child: Builder(
+                  builder: (context) {
+                    final onRed = (tickCounter ~/ 8) % 2 == 0;
+                    final sirenColor = onRed
+                        ? Colors.redAccent
+                        : Colors.blueAccent;
+                    return Container(
+                      width: 20,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        color: sirenColor,
+                        borderRadius: BorderRadius.circular(3),
+                        boxShadow: [
+                          BoxShadow(
+                            color: sirenColor.withValues(alpha: 0.85),
+                            blurRadius: 10,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ),
 
@@ -2095,6 +2227,91 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ],
                 ),
               ),
+
+              // Level-up banner - pops in briefly whenever the player
+              // reaches a new level, then fades away on its own.
+              if (_levelUpController.value > 0)
+                Positioned(
+                  top: 118,
+                  left: 0,
+                  right: 0,
+                  child: IgnorePointer(
+                    child: Builder(
+                      builder: (context) {
+                        final v = _levelUpController.value;
+                        double opacity;
+                        double scale;
+                        if (v < 0.25) {
+                          final t = v / 0.25;
+                          opacity = t;
+                          scale = 0.7 + 0.3 * Curves.easeOutBack.transform(t);
+                        } else if (v < 0.7) {
+                          opacity = 1.0;
+                          scale = 1.0;
+                        } else {
+                          final t = (v - 0.7) / 0.3;
+                          opacity = (1 - t).clamp(0.0, 1.0);
+                          scale = 1.0;
+                        }
+                        return Opacity(
+                          opacity: opacity.clamp(0.0, 1.0),
+                          child: Center(
+                            child: Transform.scale(
+                              scale: scale,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 22,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Colors.amber, Colors.deepOrange],
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.amber.withValues(
+                                        alpha: 0.55,
+                                      ),
+                                      blurRadius: 22,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.flash_on_rounded,
+                                      color: Colors.white,
+                                      size: 22,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'LEVEL $level',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1.2,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.black38,
+                                            blurRadius: 4,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
 
               if (isGameOver)
                 Positioned.fill(
