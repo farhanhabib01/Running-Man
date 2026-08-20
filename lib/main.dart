@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 
+// ==========================================
+// SOUND MANAGER
+// ==========================================
 class SoundManager {
   static final AudioPlayer bg = AudioPlayer();
   static final List<AudioPlayer> coinPool = List.generate(
@@ -126,13 +129,16 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const MaterialApp(
-      title: 'Runner Chase Final',
+      title: 'Runner Chase Elite',
       debugShowCheckedModeBanner: false,
       home: StartScreen(),
     );
   }
 }
 
+// ==========================================
+// DECORATIVE FLOATING CLOUDS
+// ==========================================
 class _FloatingClouds extends StatefulWidget {
   const _FloatingClouds();
   @override
@@ -437,7 +443,11 @@ class _StartScreenState extends State<StartScreen>
   @override
   void initState() {
     super.initState();
-    SoundManager.preload().then((_) { if (mounted) { SoundManager.playBackgroundMusic(); } });
+    SoundManager.preload().then((_) {
+      if (mounted) {
+        SoundManager.playBackgroundMusic();
+      }
+    });
 
     _bounceController = AnimationController(
       vsync: this,
@@ -1012,7 +1022,6 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   static const int laneCount = 3;
 
-  // NEW: Pre-game Subway Surfers style intro state
   bool isIntroPhase = true;
   late AnimationController _tapPulseController;
 
@@ -1021,7 +1030,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double playerLaneAnim = 1.0;
 
   int policeLane = 1;
-  // Start police hidden off-screen during intro
   double policeY = 1.2;
   double policeLaneAnim = 1.0;
   int policeLaneDelayCounter = 0;
@@ -1031,6 +1039,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   List<FallingItem> items = [];
   List<FloatingPopup> popups = [];
   List<_DustParticle> dustParticles = [];
+  // NEW: Elite Sparkle/Neon particle list for hyper-arcade visuals
+  List<_NeonSparkle> neonParticles = [];
 
   double speed = 0.006;
 
@@ -1138,13 +1148,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     setupGame();
   }
 
-  // Prepares the idle state without starting the timer
   void setupGame() {
     gameTimer?.cancel();
     countdownTimer?.cancel();
     items.clear();
     popups.clear();
     dustParticles.clear();
+    neonParticles.clear();
 
     score = 0;
     coins = 0;
@@ -1155,9 +1165,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     playerLane = 1;
     playerLaneAnim = 1.0;
 
-    // Reset intro phase variables
     isIntroPhase = true;
-    policeY = 1.2; // Hide police initially
+    policeY = 1.2;
     policeLane = 1;
     policeLaneAnim = 1.0;
     policeLaneDelayCounter = 0;
@@ -1183,22 +1192,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _gameOverController.reset();
     _levelUpController.reset();
 
-    // Start a slow ticker just for the idle character breathing animation
     gameTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
       if (isIntroPhase) {
-        setState(() {}); // Just redraws screen for idle animation
+        setState(() {});
       } else {
         updateGame();
       }
     });
   }
 
-  // Triggered when user taps the screen during Intro
   void startChase() {
     setState(() {
       isIntroPhase = false;
     });
-    
   }
 
   void updateGame() {
@@ -1226,7 +1232,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
       }
 
-      // Police dramatically catches up after intro tap
       double targetPoliceY = playerY + 0.13;
       policeY += (targetPoliceY - policeY) * 0.1;
 
@@ -1356,7 +1361,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       }
       popups.removeWhere((popup) => popup.life <= 0);
 
-      if (!isJumping && tickCounter % 5 == 0) {
+      // Elite visual dust and neon trails
+      if (!isJumping && tickCounter % 4 == 0) {
         dustParticles.add(
           _DustParticle(
             laneAnim: playerLaneAnim,
@@ -1364,11 +1370,24 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             drift: random.nextDouble() * 10 - 5,
           ),
         );
+        neonParticles.add(
+          _NeonSparkle(
+            x: playerLaneAnim,
+            y: playerY + 0.05,
+            color: random.nextBool() ? Colors.cyanAccent : Colors.amberAccent,
+          ),
+        );
       }
+
       for (var dust in dustParticles) {
         dust.life--;
       }
       dustParticles.removeWhere((dust) => dust.life <= 0);
+
+      for (var neon in neonParticles) {
+        neon.life--;
+      }
+      neonParticles.removeWhere((neon) => neon.life <= 0);
 
       if (tickCounter % 90 == 0) {
         speed += 0.0008;
@@ -1440,7 +1459,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void handleSwipe(double difference) {
-    if (isIntroPhase) return; // Disable swipes during intro
+    if (isIntroPhase) return;
     const double swipeThreshold = 25;
     if (difference.abs() < swipeThreshold) return;
     if (difference > 0)
@@ -1799,7 +1818,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () {
-          // Triggers chase to start if in intro phase
           if (isIntroPhase) {
             startChase();
           }
@@ -1914,6 +1932,38 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 );
               }),
 
+              // Elite Neon Sparkle trails
+              ...neonParticles.map((neon) {
+                final opacity =
+                    (neon.life / _NeonSparkle.maxLife).clamp(0.0, 1.0) * 0.8;
+                return Positioned(
+                  left:
+                      roadLeft +
+                      neon.x * laneWidth +
+                      laneWidth / 2 +
+                      (random.nextDouble() * 20 - 10),
+                  top: neon.y * size.height + (random.nextDouble() * 20 - 10),
+                  child: Opacity(
+                    opacity: opacity,
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: neon.color,
+                        boxShadow: [
+                          BoxShadow(
+                            color: neon.color,
+                            blurRadius: 6,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+
               ...dustParticles.map((dust) {
                 final opacity =
                     (dust.life / _DustParticle.maxLife).clamp(0.0, 1.0) * 0.35;
@@ -1992,14 +2042,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Shadow for player
               Positioned(
                 left:
                     roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 34,
-                top:
-                    playerY * size.height -
-                    playerJumpOffset +
-                    70, // adjusted down for bigger character
+                top: playerY * size.height - playerJumpOffset + 70,
                 child: Opacity(
                   opacity: (0.32 * (1 - (playerJumpOffset / jumpHeight) * 0.75))
                       .clamp(0.06, 0.32),
@@ -2060,7 +2106,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // CHANGED: Increased character size to 80x80 and adjusted offset. Added breathing animation during Intro Phase
+              // CHANGED: Professional arc tilt when swiping lanes + 80x80 high definition look
               Positioned(
                 left:
                     roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 40,
@@ -2069,12 +2115,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     playerJumpOffset -
                     (isJumping ? 0 : (sin(tickCounter * 0.35) + 1) * 2.5),
                 child: Transform.rotate(
-                  angle: ((playerLane - playerLaneAnim) * -0.5).clamp(
-                    -0.22,
-                    0.22,
+                  angle: ((playerLane - playerLaneAnim) * -0.35).clamp(
+                    -0.25,
+                    0.25,
                   ),
                   child: Transform.scale(
-                    // Idle breathing animation scale logic
                     scale: isIntroPhase
                         ? 1.0 +
                               (sin(
@@ -2120,18 +2165,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
-              // Intro Phase Overlay (Tap to escape)
               if (isIntroPhase)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: Container(
-                      color: Colors.black.withValues(alpha: 0.3),
+                      color: Colors.black.withValues(alpha: 0.35),
                       child: Center(
                         child: AnimatedBuilder(
                           animation: _tapPulseController,
                           builder: (context, child) {
                             return Opacity(
-                              opacity: 0.4 + 0.6 * _tapPulseController.value,
+                              opacity: 0.5 + 0.5 * _tapPulseController.value,
                               child: Transform.scale(
                                 scale: 0.95 + 0.05 * _tapPulseController.value,
                                 child: Column(
@@ -2139,16 +2183,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                   children: [
                                     const Icon(
                                       Icons.touch_app_rounded,
-                                      color: Colors.white,
-                                      size: 50,
+                                      color: Colors.amberAccent,
+                                      size: 55,
                                       shadows: [
                                         Shadow(
                                           color: Colors.black54,
-                                          blurRadius: 10,
+                                          blurRadius: 12,
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 10),
+                                    const SizedBox(height: 12),
                                     const Text(
                                       'TAP TO ESCAPE!',
                                       style: TextStyle(
@@ -2175,7 +2219,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
-              // HUD
               if (!isIntroPhase)
                 Positioned(
                   top: 42,
@@ -2895,6 +2938,20 @@ class _DustParticle {
   });
 }
 
+class _NeonSparkle {
+  double x;
+  double y;
+  Color color;
+  int life;
+  static const int maxLife = 18;
+  _NeonSparkle({
+    required this.x,
+    required this.y,
+    required this.color,
+    this.life = maxLife,
+  });
+}
+
 class DashedLinePainter extends CustomPainter {
   final double offset;
   DashedLinePainter({required this.offset});
@@ -2921,5 +2978,3 @@ class DashedLinePainter extends CustomPainter {
     return oldDelegate.offset != offset;
   }
 }
-
-
