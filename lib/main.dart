@@ -17,6 +17,19 @@ import 'package:audioplayers/audioplayers.dart';
 // and ignore further play requests. Rotating across several
 // preloaded players avoids that entirely, and also lets rapid
 // back-to-back coin pickups overlap properly.
+//
+// FIX (background music not playing):
+// bg uses the default (MediaPlayer-backed) player mode, not
+// lowLatency. On that mode, resume() only works on a player that
+// has ALREADY been started at least once via play() and then
+// paused - calling resume() on a player that was only ever
+// setSourceAsset()'d (never actually played) does nothing on
+// native side. That's why bg never made a sound while jump/coin
+// (which use lowLatency mode) worked fine.
+// Fix: the first call to playBackgroundMusic() uses play() to
+// actually start it; every call after that (replays) uses the
+// original fast seek(0)+resume() path. stopBackgroundMusic()
+// resets the "started" flag so a later play again uses play().
 // ==========================================
 class SoundManager {
   static final AudioPlayer bg = AudioPlayer();
@@ -30,6 +43,11 @@ class SoundManager {
 
   static bool _preloaded = false;
   static bool _preloading = false;
+
+  // Tracks whether bg has actually been started via play() at least
+  // once. Needed because resume() is a no-op on a never-played
+  // MediaPlayer-backed AudioPlayer.
+  static bool _bgStarted = false;
 
   static Future<void> preload() async {
     if (_preloaded || _preloading) return;
@@ -66,14 +84,25 @@ class SoundManager {
 
   static Future<void> playBackgroundMusic() async {
     try {
-      await bg.seek(Duration.zero);
-      await bg.resume();
+      if (!_bgStarted) {
+        // First ever start: must use play(), resume() won't work yet.
+        await bg.play(AssetSource('sounds/background.mp3'));
+        _bgStarted = true;
+      } else {
+        // Already started before (just paused/stopped-and-restarted
+        // in-session) - fast path, no reload needed.
+        await bg.seek(Duration.zero);
+        await bg.resume();
+      }
     } catch (_) {}
   }
 
   static Future<void> stopBackgroundMusic() async {
     try {
       await bg.stop();
+      // stop() fully resets native player state, so next play must
+      // go through play() again, not resume().
+      _bgStarted = false;
     } catch (_) {}
   }
 
@@ -187,8 +216,7 @@ class _FloatingCloudsState extends State<_FloatingClouds>
             return Stack(
               children: List.generate(_startOffsets.length, (i) {
                 final t =
-                    (_controller.value * _speeds[i] + _startOffsets[i]) %
-                        1.0;
+                    (_controller.value * _speeds[i] + _startOffsets[i]) % 1.0;
                 final left = t * (width + _sizes[i]) - _sizes[i];
 
                 return Positioned(
@@ -534,9 +562,7 @@ class _StartScreenState extends State<StartScreen>
                   value: loadingProgress,
                   minHeight: 14,
                   backgroundColor: Colors.black26,
-                  valueColor: const AlwaysStoppedAnimation<Color>(
-                    Colors.amber,
-                  ),
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
                 ),
                 // Shine sweep gliding across the bar for a polished,
                 // "still working" feel while it fills up.
@@ -686,9 +712,7 @@ class _StartScreenState extends State<StartScreen>
                         fontSize: 34,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 2,
-                        shadows: [
-                          Shadow(color: Colors.black45, blurRadius: 6),
-                        ],
+                        shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
                       ),
                     ),
                   ),
@@ -724,9 +748,7 @@ class _StartScreenState extends State<StartScreen>
                                     _buildGlowRing(0.5),
                                     Transform.rotate(
                                       angle:
-                                          _ringRotateController.value *
-                                          2 *
-                                          pi,
+                                          _ringRotateController.value * 2 * pi,
                                       child: CustomPaint(
                                         size: const Size(150, 150),
                                         painter: _RadarRingPainter(
@@ -774,15 +796,13 @@ class _StartScreenState extends State<StartScreen>
                           return FadeTransition(
                             opacity: animation,
                             child: ScaleTransition(
-                              scale: Tween<double>(
-                                begin: 0.85,
-                                end: 1.0,
-                              ).animate(
-                                CurvedAnimation(
-                                  parent: animation,
-                                  curve: Curves.easeOutBack,
-                                ),
-                              ),
+                              scale: Tween<double>(begin: 0.85, end: 1.0)
+                                  .animate(
+                                    CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.easeOutBack,
+                                    ),
+                                  ),
                               child: child,
                             ),
                           );
@@ -855,8 +875,7 @@ class GameScreen extends StatefulWidget {
   State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen>
-    with TickerProviderStateMixin {
+class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   static const int laneCount = 3;
 
   int playerLane = 1;
@@ -914,29 +933,34 @@ class _GameScreenState extends State<GameScreen>
   // These run on their own tickers so they animate smoothly even in
   // the instant the main game timer stops (e.g. right at game over).
   // ==========================================
-  late AnimationController _shakeController; // screen shake + red flash on arrest
-  late AnimationController _scoreBumpController; // score pop when coins are collected
+  late AnimationController
+  _shakeController; // screen shake + red flash on arrest
+  late AnimationController
+  _scoreBumpController; // score pop when coins are collected
   late Animation<double> _scoreBumpAnimation;
-  late AnimationController _gameOverController; // entrance for the game-over card
+  late AnimationController
+  _gameOverController; // entrance for the game-over card
   late AnimationController _gameOverPulseController; // subtle card glow/pulse
 
   @override
   void initState() {
     super.initState();
 
-    _shakeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    )..addListener(() {
-        if (mounted) setState(() {});
-      });
+    _shakeController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 500),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
 
-    _scoreBumpController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 260),
-    )..addListener(() {
-        if (mounted) setState(() {});
-      });
+    _scoreBumpController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 260),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
 
     _scoreBumpAnimation = TweenSequence<double>([
       TweenSequenceItem(
@@ -955,12 +979,13 @@ class _GameScreenState extends State<GameScreen>
       ),
     ]).animate(_scoreBumpController);
 
-    _gameOverController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    )..addListener(() {
-        if (mounted) setState(() {});
-      });
+    _gameOverController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 700),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
 
     _gameOverPulseController = AnimationController(
       vsync: this,
@@ -1472,9 +1497,7 @@ class _GameScreenState extends State<GameScreen>
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.055),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.08),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
         children: [
@@ -1859,7 +1882,8 @@ class _GameScreenState extends State<GameScreen>
                               _gameOverController.value,
                             ),
                             child: Transform.scale(
-                              scale: 0.82 +
+                              scale:
+                                  0.82 +
                                   0.18 *
                                       Curves.easeOutBack.transform(
                                         _gameOverController.value,
@@ -1952,9 +1976,7 @@ class _GameScreenState extends State<GameScreen>
                                     const SizedBox(height: 14),
 
                                     Text(
-                                      isArrested
-                                          ? 'GAME OVER'
-                                          : 'RUN ENDED',
+                                      isArrested ? 'GAME OVER' : 'RUN ENDED',
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 30,
@@ -2018,9 +2040,7 @@ class _GameScreenState extends State<GameScreen>
                                         color: Colors.white.withValues(
                                           alpha: 0.055,
                                         ),
-                                        borderRadius: BorderRadius.circular(
-                                          14,
-                                        ),
+                                        borderRadius: BorderRadius.circular(14),
                                         border: Border.all(
                                           color: Colors.white.withValues(
                                             alpha: 0.08,
@@ -2126,8 +2146,9 @@ class _GameScreenState extends State<GameScreen>
                                             alpha: 0.35,
                                           ),
                                           shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(17),
+                                            borderRadius: BorderRadius.circular(
+                                              17,
+                                            ),
                                           ),
                                         ),
                                       ),
