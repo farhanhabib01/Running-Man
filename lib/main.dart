@@ -437,7 +437,7 @@ class _StartScreenState extends State<StartScreen>
   @override
   void initState() {
     super.initState();
-    SoundManager.preload();
+    SoundManager.preload().then((_) { if (mounted) { SoundManager.playBackgroundMusic(); } });
 
     _bounceController = AnimationController(
       vsync: this,
@@ -1198,7 +1198,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     setState(() {
       isIntroPhase = false;
     });
-    SoundManager.playBackgroundMusic();
+    
   }
 
   void updateGame() {
@@ -2921,3 +2921,4 @@ class DashedLinePainter extends CustomPainter {
     return oldDelegate.offset != offset;
   }
 }
+
