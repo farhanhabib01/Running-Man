@@ -401,6 +401,79 @@ class _SparkleField extends StatelessWidget {
 }
 
 // ==========================================
+// CITY SKYLINE SILHOUETTE
+// A static row of building silhouettes with a handful of slowly
+// blinking window lights, anchored to the bottom of the start
+// screen. Adds depth and a "city at night, on the run" cinematic
+// backdrop behind the clouds/logo without competing with them.
+// ==========================================
+class _SkylineSilhouette extends StatelessWidget {
+  final double t; // 0..1 looping progress, drives window blink
+
+  const _SkylineSilhouette({required this.t});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return CustomPaint(
+            size: Size(constraints.maxWidth, 150),
+            painter: _SkylinePainter(t: t),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _SkylinePainter extends CustomPainter {
+  final double t;
+  _SkylinePainter({required this.t});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final buildingPaint = Paint()..color = Colors.black.withValues(alpha: 0.38);
+    final windowPaint = Paint();
+
+    final rnd = Random(7);
+    double x = -20;
+    int seed = 0;
+
+    while (x < size.width + 20) {
+      final w = 34.0 + rnd.nextDouble() * 46;
+      final h = 55.0 + rnd.nextDouble() * 85;
+      final rect = Rect.fromLTWH(x, size.height - h, w, h);
+      canvas.drawRect(rect, buildingPaint);
+
+      // A sparse grid of windows, some blinking on a slow cycle.
+      final cols = (w / 12).floor().clamp(1, 6);
+      final rows = (h / 16).floor().clamp(1, 8);
+      for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+          seed++;
+          if (seed % 3 == 0) continue; // leave gaps, not every window lit
+          final blink = (sin(t * 2 * pi * 1.3 + seed * 0.7) + 1) / 2; // 0..1
+          final alpha = (0.10 + blink * 0.22).clamp(0.0, 0.32);
+          windowPaint.color = Colors.amberAccent.withValues(alpha: alpha);
+          canvas.drawRect(
+            Rect.fromLTWH(rect.left + 6 + c * 12, rect.top + 8 + r * 16, 5, 8),
+            windowPaint,
+          );
+        }
+      }
+
+      x += w + 6;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SkylinePainter oldDelegate) {
+    return oldDelegate.t != t;
+  }
+}
+
+// ==========================================
 // RADAR RING PAINTER
 // A dashed circular ring that spins slowly behind the start-screen
 // logo, giving it a "badge / radar" feel that matches the police
@@ -858,6 +931,17 @@ class _StartScreenState extends State<StartScreen>
                 );
               },
             ),
+            AnimatedBuilder(
+              animation: _sirenController,
+              builder: (context, _) {
+                return Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _SkylineSilhouette(t: _sirenController.value),
+                );
+              },
+            ),
             const Positioned.fill(child: _Vignette()),
             // Top siren bar
             AnimatedBuilder(
@@ -1126,12 +1210,25 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   int playerLane = 1;
   double playerY = 0.7;
 
+  // Smoothed visual-only lane position: the player's *logical* lane
+  // (playerLane, used for all collision/gameplay checks) still
+  // changes instantly on swipe, but the character glides toward it
+  // on screen instead of teleporting - this is what makes lane
+  // changes read as a real running motion instead of the character
+  // just "popping" into place.
+  double playerLaneAnim = 1.0;
+
   int policeLane = 1;
   double policeY = 0.9;
+  double policeLaneAnim = 1.0;
   int policeLaneDelayCounter = 0;
+
+  // Scroll offset for the roadside buildings/trees parallax layer.
+  double sceneryOffset = 0;
 
   List<FallingItem> items = [];
   List<FloatingPopup> popups = [];
+  List<_DustParticle> dustParticles = [];
 
   double speed = 0.006;
 
@@ -1265,10 +1362,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     speed = 0.006;
 
     playerLane = 1;
+    playerLaneAnim = 1.0;
 
     policeLane = 1;
     policeY = 0.9;
+    policeLaneAnim = 1.0;
     policeLaneDelayCounter = 0;
+    sceneryOffset = 0;
+    dustParticles.clear();
 
     isGameOver = false;
     isArrested = false;
@@ -1307,6 +1408,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       if (roadOffset > 80) {
         roadOffset = 0;
       }
+
+      sceneryOffset += speed * 260;
+      if (sceneryOffset > _SceneryPainter.patternHeight) {
+        sceneryOffset -= _SceneryPainter.patternHeight;
+      }
+
+      // Ease the on-screen lane position toward the logical lane -
+      // this is what turns an instant lane swap into a smooth glide.
+      playerLaneAnim += (playerLane - playerLaneAnim) * 0.28;
+      policeLaneAnim += (policeLane - policeLaneAnim) * 0.22;
 
       // Police chase logic (lane following)
       policeLaneDelayCounter++;
@@ -1490,6 +1601,24 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         popup.life--;
       }
       popups.removeWhere((popup) => popup.life <= 0);
+
+      // Kick up a small dust puff behind the player's feet every
+      // few ticks while running on the ground - skipped mid-air so
+      // it doesn't look like the character is dragging dust through
+      // the sky during a jump.
+      if (!isJumping && tickCounter % 5 == 0) {
+        dustParticles.add(
+          _DustParticle(
+            laneAnim: playerLaneAnim,
+            y: playerY,
+            drift: random.nextDouble() * 10 - 5,
+          ),
+        );
+      }
+      for (var dust in dustParticles) {
+        dust.life--;
+      }
+      dustParticles.removeWhere((dust) => dust.life <= 0);
 
       if (tickCounter % 90 == 0) {
         speed += 0.0008;
@@ -1685,6 +1814,91 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
+  // Wraps buildItemWidget() with a grounding shadow underneath and,
+  // for cars, a fading motion-blur trail behind them - small touches
+  // that make oncoming traffic read as fast and "real" rather than
+  // flat sprites falling down the screen.
+  Widget _buildItemVisual(FallingItem item) {
+    switch (item.type) {
+      case ItemType.car:
+        return Stack(
+          alignment: Alignment.topCenter,
+          clipBehavior: Clip.none,
+          children: [
+            // Speed-blur streaks trailing above the car (the
+            // direction it came from), strength scales with speed.
+            if (speed > 0.010)
+              Positioned(
+                top: -34 * ((speed - 0.006) / 0.018).clamp(0.0, 1.0) - 6,
+                child: Opacity(
+                  opacity: (0.5 * ((speed - 0.006) / 0.018)).clamp(0.0, 0.5),
+                  child: Container(
+                    width: 30,
+                    height: 34 * ((speed - 0.006) / 0.018).clamp(0.2, 1.0),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.white.withValues(alpha: 0),
+                          Colors.white.withValues(alpha: 0.35),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Container(
+                width: 46,
+                height: 13,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.30),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+            ),
+            Transform.translate(
+              offset: const Offset(0, -8),
+              child: buildItemWidget(item),
+            ),
+          ],
+        );
+
+      case ItemType.barricade:
+      case ItemType.bush:
+        // A gentle side-to-side sway, phase offset per item, so a
+        // row of hurdles doesn't feel like a static wall.
+        final sway = sin((tickCounter + item.hashCode) * 0.06) * 2.5;
+        return Stack(
+          alignment: Alignment.topCenter,
+          clipBehavior: Clip.none,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 44),
+              child: Container(
+                width: 50,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.26),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+            ),
+            Transform.translate(
+              offset: Offset(sway, 0),
+              child: buildItemWidget(item),
+            ),
+          ],
+        );
+
+      case ItemType.coin:
+        return buildItemWidget(item);
+    }
+  }
+
   Widget buildItemWidget(FallingItem item) {
     switch (item.type) {
       case ItemType.coin:
@@ -1818,9 +2032,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
 
-    final laneWidth = size.width / laneCount;
-
-    final roadWidth = laneWidth * laneCount;
+    // The road no longer spans the full screen width - narrowing it
+    // leaves real grass strips on both sides for the scrolling
+    // scenery (buildings/trees) to actually be visible in, instead
+    // of being fully hidden behind an edge-to-edge road.
+    final roadWidth = size.width * 0.82;
+    final laneWidth = roadWidth / laneCount;
+    final roadLeft = (size.width - roadWidth) / 2;
 
     final double playerJumpOffset = isJumping ? _jumpArc(jumpTick) : 0;
     final double policeJumpOffset = policeIsJumping
@@ -1883,9 +2101,34 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Road surface with a soft gradient + side curbs for depth
+              // Roadside scenery (buildings/trees) scrolling in the
+              // grass strips on either side of the road - adds
+              // parallax depth and a stronger sense of forward speed.
               Positioned(
                 left: 0,
+                top: 0,
+                width: roadLeft,
+                height: size.height,
+                child: CustomPaint(
+                  painter: _SceneryPainter(offset: sceneryOffset, isLeft: true),
+                ),
+              ),
+              Positioned(
+                right: 0,
+                top: 0,
+                width: roadLeft,
+                height: size.height,
+                child: CustomPaint(
+                  painter: _SceneryPainter(
+                    offset: sceneryOffset,
+                    isLeft: false,
+                  ),
+                ),
+              ),
+
+              // Road surface with a soft gradient + side curbs for depth
+              Positioned(
+                left: roadLeft,
                 top: 0,
                 width: roadWidth,
                 height: size.height,
@@ -1908,14 +2151,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
               // Left/right road curbs (striped)
               Positioned(
-                left: 0,
+                left: roadLeft,
                 top: 0,
                 width: 6,
                 height: size.height,
                 child: Container(color: Colors.amber[700]),
               ),
               Positioned(
-                left: roadWidth - 6,
+                left: roadLeft + roadWidth - 6,
                 top: 0,
                 width: 6,
                 height: size.height,
@@ -1923,7 +2166,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               ),
 
               ...List.generate(laneCount - 1, (index) {
-                double dividerLeft = (index + 1) * laneWidth;
+                double dividerLeft = roadLeft + (index + 1) * laneWidth;
 
                 return Positioned(
                   left: dividerLeft - 2,
@@ -1938,9 +2181,38 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
               ...items.map((item) {
                 return Positioned(
-                  left: item.lane * laneWidth + laneWidth / 2 - 40,
+                  left: roadLeft + item.lane * laneWidth + laneWidth / 2 - 40,
                   top: item.y * size.height,
-                  child: buildItemWidget(item),
+                  child: _buildItemVisual(item),
+                );
+              }),
+
+              // Dust puffs kicked up behind the player's feet while
+              // running - small fading grey circles that drift and
+              // shrink, giving the ground contact a bit of life.
+              ...dustParticles.map((dust) {
+                final opacity =
+                    (dust.life / _DustParticle.maxLife).clamp(0.0, 1.0) * 0.35;
+                final progress = 1 - (dust.life / _DustParticle.maxLife);
+                return Positioned(
+                  left:
+                      roadLeft +
+                      dust.laneAnim * laneWidth +
+                      laneWidth / 2 -
+                      6 +
+                      dust.drift * progress,
+                  top: dust.y * size.height + 40 - (progress * 14),
+                  child: Opacity(
+                    opacity: opacity,
+                    child: Container(
+                      width: 10 + progress * 8,
+                      height: 10 + progress * 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
                 );
               }),
 
@@ -1952,7 +2224,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   1.0,
                 );
                 return Positioned(
-                  left: popup.x * laneWidth + laneWidth / 2 - 20,
+                  left: roadLeft + popup.x * laneWidth + laneWidth / 2 - 20,
                   top: popup.y * size.height,
                   child: Opacity(
                     opacity: opacity,
@@ -1978,7 +2250,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               // visually and squashes/fades while airborne, a classic
               // runner-game polish touch.
               Positioned(
-                left: policeLane * laneWidth + laneWidth / 2 - 22,
+                left:
+                    roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 22,
                 top: policeY * size.height - policeJumpOffset + 48,
                 child: Opacity(
                   opacity: (0.30 * (1 - (policeJumpOffset / jumpHeight) * 0.75))
@@ -2000,7 +2273,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
               Positioned(
-                left: playerLane * laneWidth + laneWidth / 2 - 24,
+                left:
+                    roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 24,
                 top: playerY * size.height - playerJumpOffset + 52,
                 child: Opacity(
                   opacity: (0.32 * (1 - (playerJumpOffset / jumpHeight) * 0.75))
@@ -2024,7 +2298,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
               // Police - lifts up when policeIsJumping is active
               Positioned(
-                left: policeLane * laneWidth + laneWidth / 2 - 27,
+                left:
+                    roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 27,
                 top: policeY * size.height - policeJumpOffset,
                 child: safeImage(
                   'assets/game/police.png',
@@ -2036,7 +2311,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               // Flashing red/blue siren light above the police car -
               // sells the "pursuit" theme at a glance.
               Positioned(
-                left: policeLane * laneWidth + laneWidth / 2 - 10,
+                left:
+                    roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 10,
                 top: policeY * size.height - policeJumpOffset - 12,
                 child: Builder(
                   builder: (context) {
@@ -2064,21 +2340,48 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               ),
 
               // Player - lifts up when isJumping is active, with a
-              // squash-and-stretch anchored at the feet.
+              // squash-and-stretch anchored at the feet, a small
+              // continuous running bob while grounded, and a lean
+              // that tilts into whichever direction it's currently
+              // gliding toward its target lane.
               Positioned(
-                left: playerLane * laneWidth + laneWidth / 2 - 30,
-                top: playerY * size.height - playerJumpOffset,
-                child: Transform(
-                  alignment: Alignment.bottomCenter,
-                  transform: Matrix4.diagonal3Values(
-                    playerSquash.dx,
-                    playerSquash.dy,
-                    1.0,
+                left:
+                    roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 30,
+                top:
+                    playerY * size.height -
+                    playerJumpOffset -
+                    (isJumping ? 0 : (sin(tickCounter * 0.35) + 1) * 2.5),
+                child: Transform.rotate(
+                  angle: ((playerLane - playerLaneAnim) * -0.5).clamp(
+                    -0.22,
+                    0.22,
                   ),
-                  child: safeImage(
-                    'assets/game/character.gif',
-                    width: 60,
-                    height: 60,
+                  child: Transform(
+                    alignment: Alignment.bottomCenter,
+                    transform: Matrix4.diagonal3Values(
+                      playerSquash.dx,
+                      playerSquash.dy,
+                      1.0,
+                    ),
+                    child: safeImage(
+                      'assets/game/character.gif',
+                      width: 60,
+                      height: 60,
+                    ),
+                  ),
+                ),
+              ),
+
+              // Speed-lines overlay - fades in once the chase has
+              // ramped up, reinforcing how fast things have gotten.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: _SpeedLinesPainter(
+                      intensity: (((speed - 0.006) / (0.024 - 0.006)) - 0.35)
+                          .clamp(0.0, 1.0),
+                      phase: (tickCounter % 60) / 60,
+                    ),
                   ),
                 ),
               ),
@@ -2620,6 +2923,146 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       ),
     );
   }
+}
+
+// ==========================================
+// ROADSIDE SCENERY
+// Scrolling building/tree silhouettes painted in the grass strips
+// on either side of the road. Purely decorative, driven by a
+// scroll offset that advances with game speed - gives the whole
+// scene a sense of depth and forward motion instead of a flat
+// green background.
+// ==========================================
+class _SceneryPainter extends CustomPainter {
+  final double offset;
+  final bool isLeft;
+  static const double patternHeight = 240.0;
+
+  _SceneryPainter({required this.offset, required this.isLeft});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final buildingPaint = Paint()
+      ..color = Colors.blueGrey.shade900.withValues(alpha: 0.55);
+    final windowPaint = Paint()
+      ..color = Colors.amberAccent.withValues(alpha: 0.30);
+    final treeTopPaint = Paint()
+      ..color = Colors.green.shade900.withValues(alpha: 0.55);
+    final trunkPaint = Paint()
+      ..color = Colors.brown.shade800.withValues(alpha: 0.55);
+
+    double startY = -patternHeight + (offset % patternHeight);
+    int i = 0;
+
+    while (startY < size.height) {
+      final isBuilding = (i + (isLeft ? 0 : 1)).isEven;
+
+      if (isBuilding) {
+        final w = size.width * 0.68;
+        final h = 92.0;
+        final rect = Rect.fromLTWH(
+          isLeft ? size.width - w : 0,
+          startY + 30,
+          w,
+          h,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, const Radius.circular(3)),
+          buildingPaint,
+        );
+
+        for (int r = 0; r < 3; r++) {
+          for (int c = 0; c < 2; c++) {
+            canvas.drawRect(
+              Rect.fromLTWH(
+                rect.left + 8 + c * (w / 2),
+                rect.top + 10 + r * 26,
+                w / 2 - 16,
+                13,
+              ),
+              windowPaint,
+            );
+          }
+        }
+      } else {
+        final cx = isLeft ? size.width * 0.72 : size.width * 0.28;
+        final cy = startY + 78;
+        canvas.drawRect(Rect.fromLTWH(cx - 3, cy + 16, 6, 20), trunkPaint);
+        canvas.drawCircle(Offset(cx, cy), 24, treeTopPaint);
+        canvas.drawCircle(Offset(cx - 10, cy + 8), 16, treeTopPaint);
+      }
+
+      startY += patternHeight;
+      i++;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SceneryPainter oldDelegate) {
+    return oldDelegate.offset != offset;
+  }
+}
+
+// ==========================================
+// SPEED LINES
+// Faint streaks racing down from the edges of the screen once the
+// game has ramped up past moderate speed - a classic "going fast"
+// cue that kicks in gradually rather than being always-on.
+// ==========================================
+class _SpeedLinesPainter extends CustomPainter {
+  final double intensity; // 0..1
+  final double phase; // 0..1 looping
+
+  _SpeedLinesPainter({required this.intensity, required this.phase});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (intensity <= 0) return;
+
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.16 * intensity)
+      ..strokeWidth = 2;
+
+    final rnd = Random(3);
+    for (int i = 0; i < 10; i++) {
+      final fromLeft = i.isEven;
+      final baseX = fromLeft
+          ? rnd.nextDouble() * size.width * 0.22
+          : size.width - rnd.nextDouble() * size.width * 0.22;
+      final speedT = (phase * (1.2 + (i % 4) * 0.3) + i * 0.13) % 1.0;
+      final len = 40.0 + intensity * 60;
+      final y = speedT * (size.height + len) - len;
+
+      canvas.drawLine(
+        Offset(baseX, y),
+        Offset(baseX + (fromLeft ? -8 : 8), y + len),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpeedLinesPainter oldDelegate) {
+    return oldDelegate.intensity != intensity || oldDelegate.phase != phase;
+  }
+}
+
+// A short-lived dust puff kicked up behind the player's feet while
+// running (not while airborne) - a small, classic runner-game touch
+// that sells the sense of speed on the ground.
+class _DustParticle {
+  double laneAnim;
+  double y;
+  double drift;
+  int life;
+  static const int maxLife = 20;
+
+  _DustParticle({
+    required this.laneAnim,
+    required this.y,
+    required this.drift,
+    this.life = maxLife,
+  });
 }
 
 class DashedLinePainter extends CustomPainter {
