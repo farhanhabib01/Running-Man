@@ -4,45 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 
-// ==========================================
-// SOUND MANAGER
-// Preloads every sound once so playback is instant with no
-// first-play decode delay. Uses seek(0) + resume() to replay
-// instead of play(), which avoids reloading the asset each time.
-//
-// Every coin collision uses a fresh low-latency player. This prevents
-// stale player state from blocking sounds during repeated pickups,
-// game over/restart, or after returning to the app.
-//
-// FIX (background music not playing):
-// bg uses the default (MediaPlayer-backed) player mode, not
-// lowLatency. On that mode, resume() only works on a player that
-// has ALREADY been started at least once via play() and then
-// paused - calling resume() on a player that was only ever
-// setSourceAsset()'d (never actually played) does nothing on
-// native side. That's why bg never made a sound while jump/coin
-// (which use lowLatency mode) worked fine.
-// Fix: the first call to playBackgroundMusic() uses play() to
-// actually start it; every call after that (replays) uses the
-// original fast seek(0)+resume() path. stopBackgroundMusic()
-// resets the "started" flag so a later play again uses play().
-// ==========================================
 class SoundManager {
   static final AudioPlayer bg = AudioPlayer();
   static final List<AudioPlayer> coinPool = List.generate(
     4,
     (_) => AudioPlayer(),
   );
-  static int _coinIndex = 0;
   static final AudioPlayer jump = AudioPlayer();
   static final AudioPlayer gameOver = AudioPlayer();
 
   static bool _preloaded = false;
   static bool _preloading = false;
-
-  // Tracks whether bg has actually been started via play() at least
-  // once. Needed because resume() is a no-op on a never-played
-  // MediaPlayer-backed AudioPlayer.
   static bool _bgStarted = false;
 
   static Future<void> preload() async {
@@ -70,10 +42,8 @@ class SoundManager {
       }
 
       await Future.wait(loadTasks);
-
       _preloaded = true;
     } catch (_) {
-      // If any asset is missing, the game should still run silently.
     } finally {
       _preloading = false;
     }
@@ -82,12 +52,9 @@ class SoundManager {
   static Future<void> playBackgroundMusic() async {
     try {
       if (!_bgStarted) {
-        // First ever start: must use play(), resume() won't work yet.
         await bg.play(AssetSource('sounds/background.mp3'));
         _bgStarted = true;
       } else {
-        // Already started before (just paused/stopped-and-restarted
-        // in-session) - fast path, no reload needed.
         await bg.seek(Duration.zero);
         await bg.resume();
       }
@@ -97,32 +64,16 @@ class SoundManager {
   static Future<void> stopBackgroundMusic() async {
     try {
       await bg.stop();
-      // stop() fully resets native player state, so next play must
-      // go through play() again, not resume().
       _bgStarted = false;
     } catch (_) {}
   }
 
-  // FIX (coin / jump / gameover sound stops working after a while,
-  // or after restarting the game):
-  // seek(0)+resume() only reliably replays a player that is already
-  // in a "started then paused" state. In practice (especially after
-  // the game restarts or many rapid replays happen) these effect
-  // players can end up in a state where resume() silently does
-  // nothing. stop() + play(source) always resets the player to a
-  // clean state first and then starts fresh, so it works every
-  // single time regardless of what happened before - this is the
-  // reliable pattern for one-shot sound effects.
-  // Every pickup gets its own temporary player. This avoids stale shared
-  // player state, so repeated coins, game over/restart, and reopening the
-  // app do not prevent the next successful coin hit from playing its sound.
   static void playCoin() {
     _playCoinFresh();
   }
 
   static Future<void> _playCoinFresh() async {
     final player = AudioPlayer();
-
     try {
       await player.setPlayerMode(PlayerMode.lowLatency);
       await player.setReleaseMode(ReleaseMode.release);
@@ -152,12 +103,8 @@ class SoundManager {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Allow all sound effects to mix together instead of one interrupting
-  // another - this is what stops the coin sound from cutting off the
-  // background music.
   await AudioPlayer.global.setAudioContext(
-    AudioContext(
+    const AudioContext(
       android: AudioContextAndroid(
         isSpeakerphoneOn: false,
         stayAwake: false,
@@ -171,29 +118,23 @@ void main() async {
       ),
     ),
   );
-
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Runner Chase Final TEST Game version v1.0.0',
+    return const MaterialApp(
+      title: 'Runner Chase Final',
       debugShowCheckedModeBanner: false,
-      home: const StartScreen(),
+      home: StartScreen(),
     );
   }
 }
 
-// ==========================================
-// DECORATIVE FLOATING CLOUDS
-// ==========================================
 class _FloatingClouds extends StatefulWidget {
   const _FloatingClouds();
-
   @override
   State<_FloatingClouds> createState() => _FloatingCloudsState();
 }
@@ -201,7 +142,6 @@ class _FloatingClouds extends StatefulWidget {
 class _FloatingCloudsState extends State<_FloatingClouds>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-
   final List<double> _startOffsets = [0.0, 0.35, 0.65, 0.85, 0.5];
   final List<double> _speeds = [0.55, 1.0, 0.8, 1.3, 0.65];
   final List<double> _sizes = [70, 46, 90, 38, 60];
@@ -235,7 +175,6 @@ class _FloatingCloudsState extends State<_FloatingClouds>
                 final t =
                     (_controller.value * _speeds[i] + _startOffsets[i]) % 1.0;
                 final left = t * (width + _sizes[i]) - _sizes[i];
-
                 return Positioned(
                   left: left,
                   top: constraints.maxHeight * _verticalPositions[i],
@@ -260,19 +199,13 @@ class _FloatingCloudsState extends State<_FloatingClouds>
   }
 }
 
-// ==========================================
-// POLICE SIREN BAR
-// ==========================================
 class _SirenBar extends StatelessWidget {
-  final double t; // 0..1 animation progress
+  final double t;
   final bool topBar;
-
   const _SirenBar({required this.t, required this.topBar});
-
   @override
   Widget build(BuildContext context) {
-    // Two lobes of light chasing each other across the strip.
-    final wave = (sin(t * 2 * pi) + 1) / 2; // 0..1
+    final wave = (sin(t * 2 * pi) + 1) / 2;
     return Container(
       height: 5,
       decoration: BoxDecoration(
@@ -290,14 +223,9 @@ class _SirenBar extends StatelessWidget {
   }
 }
 
-// ==========================================
-// SIREN GLOW OVERLAY
-// ==========================================
 class _SirenGlowOverlay extends StatelessWidget {
-  final double t; // 0..1
-
+  final double t;
   const _SirenGlowOverlay({required this.t});
-
   @override
   Widget build(BuildContext context) {
     final wave = (sin(t * 2 * pi) + 1) / 2;
@@ -322,12 +250,8 @@ class _SirenGlowOverlay extends StatelessWidget {
   }
 }
 
-// ==========================================
-// VIGNETTE
-// ==========================================
 class _Vignette extends StatelessWidget {
   const _Vignette();
-
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
@@ -345,19 +269,13 @@ class _Vignette extends StatelessWidget {
   }
 }
 
-// ==========================================
-// SPARKLE PARTICLES
-// ==========================================
 class _SparkleField extends StatelessWidget {
-  final double t; // 0..1 looping progress
-
+  final double t;
   const _SparkleField({required this.t});
-
   static final List<Offset> _seeds = List.generate(18, (i) {
     final rnd = Random(i * 97);
     return Offset(rnd.nextDouble(), rnd.nextDouble());
   });
-
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -372,7 +290,6 @@ class _SparkleField extends StatelessWidget {
             final dy = h * (1 - localT);
             final dx = seed.dx * w + sin(localT * 4 * pi + i) * 10;
             final twinkle = (sin(t * 2 * pi * (2 + i % 3) + i) + 1) / 2;
-
             return Positioned(
               left: dx,
               top: dy,
@@ -395,14 +312,9 @@ class _SparkleField extends StatelessWidget {
   }
 }
 
-// ==========================================
-// CITY SKYLINE SILHOUETTE
-// ==========================================
 class _SkylineSilhouette extends StatelessWidget {
-  final double t; // 0..1 looping progress, drives window blink
-
+  final double t;
   const _SkylineSilhouette({required this.t});
-
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
@@ -421,30 +333,25 @@ class _SkylineSilhouette extends StatelessWidget {
 class _SkylinePainter extends CustomPainter {
   final double t;
   _SkylinePainter({required this.t});
-
   @override
   void paint(Canvas canvas, Size size) {
     final buildingPaint = Paint()..color = Colors.black.withValues(alpha: 0.38);
     final windowPaint = Paint();
-
     final rnd = Random(7);
     double x = -20;
     int seed = 0;
-
     while (x < size.width + 20) {
       final w = 34.0 + rnd.nextDouble() * 46;
       final h = 55.0 + rnd.nextDouble() * 85;
       final rect = Rect.fromLTWH(x, size.height - h, w, h);
       canvas.drawRect(rect, buildingPaint);
-
-      // A sparse grid of windows, some blinking on a slow cycle.
       final cols = (w / 12).floor().clamp(1, 6);
       final rows = (h / 16).floor().clamp(1, 8);
       for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
           seed++;
-          if (seed % 3 == 0) continue; // leave gaps, not every window lit
-          final blink = (sin(t * 2 * pi * 1.3 + seed * 0.7) + 1) / 2; // 0..1
+          if (seed % 3 == 0) continue;
+          final blink = (sin(t * 2 * pi * 1.3 + seed * 0.7) + 1) / 2;
           final alpha = (0.10 + blink * 0.22).clamp(0.0, 0.32);
           windowPaint.color = Colors.amberAccent.withValues(alpha: alpha);
           canvas.drawRect(
@@ -453,7 +360,6 @@ class _SkylinePainter extends CustomPainter {
           );
         }
       }
-
       x += w + 6;
     }
   }
@@ -464,13 +370,9 @@ class _SkylinePainter extends CustomPainter {
   }
 }
 
-// ==========================================
-// RADAR RING PAINTER
-// ==========================================
 class _RadarRingPainter extends CustomPainter {
   final Color color;
   _RadarRingPainter({required this.color});
-
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
@@ -478,11 +380,9 @@ class _RadarRingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.2
       ..strokeCap = StrokeCap.round;
-
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
     const dashCount = 20;
-
     for (int i = 0; i < dashCount; i++) {
       if (i.isEven) {
         final startAngle = (2 * pi / dashCount) * i;
@@ -506,7 +406,6 @@ class _RadarRingPainter extends CustomPainter {
 
 class StartScreen extends StatefulWidget {
   const StartScreen({super.key});
-
   @override
   State<StartScreen> createState() => _StartScreenState();
 }
@@ -515,7 +414,6 @@ class _StartScreenState extends State<StartScreen>
     with TickerProviderStateMixin {
   late AnimationController _bounceController;
   late Animation<double> _bounceAnimation;
-
   late AnimationController _introController;
   late Animation<double> _titleFade;
   late Animation<double> _titleSlide;
@@ -524,10 +422,8 @@ class _StartScreenState extends State<StartScreen>
   late Animation<double> _logoRotate;
   late Animation<double> _bottomFade;
   late Animation<double> _bottomSlide;
-
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
-
   late AnimationController _bgController;
   late AnimationController _glowController;
   late AnimationController _ringRotateController;
@@ -536,18 +432,12 @@ class _StartScreenState extends State<StartScreen>
 
   double loadingProgress = 0.0;
   bool isLoaded = false;
-
   Timer? loadingTimer;
 
   @override
   void initState() {
     super.initState();
-
-    SoundManager.preload().then((_) {
-      if (mounted) {
-        SoundManager.playBackgroundMusic();
-      }
-    });
+    SoundManager.preload();
 
     _bounceController = AnimationController(
       vsync: this,
@@ -573,7 +463,6 @@ class _StartScreenState extends State<StartScreen>
         curve: const Interval(0.0, 0.45, curve: Curves.easeOutBack),
       ),
     );
-
     _logoFade = CurvedAnimation(
       parent: _introController,
       curve: const Interval(0.2, 0.75, curve: Curves.easeOut),
@@ -590,7 +479,6 @@ class _StartScreenState extends State<StartScreen>
         curve: const Interval(0.2, 0.75, curve: Curves.easeOutCubic),
       ),
     );
-
     _bottomFade = CurvedAnimation(
       parent: _introController,
       curve: const Interval(0.55, 1.0, curve: Curves.easeOut),
@@ -606,31 +494,25 @@ class _StartScreenState extends State<StartScreen>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
-
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.06).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-
     _bgController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 5),
     )..repeat(reverse: true);
-
     _glowController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2200),
     )..repeat();
-
     _ringRotateController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 10),
     )..repeat();
-
     _shimmerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     )..repeat();
-
     _sirenController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
@@ -643,10 +525,8 @@ class _StartScreenState extends State<StartScreen>
 
     loadingTimer = Timer.periodic(tickTime, (timer) {
       currentTick++;
-
       setState(() {
         loadingProgress = (currentTick / totalTicks).clamp(0.0, 1.0);
-
         if (loadingProgress >= 1.0) {
           isLoaded = true;
           timer.cancel();
@@ -696,7 +576,6 @@ class _StartScreenState extends State<StartScreen>
     final t = (_glowController.value + phase) % 1.0;
     final scale = 0.55 + t * 0.9;
     final opacity = (1 - t) * 0.32;
-
     return Opacity(
       opacity: opacity,
       child: Transform.scale(
@@ -852,7 +731,6 @@ class _StartScreenState extends State<StartScreen>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-
     return Scaffold(
       body: AnimatedBuilder(
         animation: _bgController,
@@ -879,53 +757,43 @@ class _StartScreenState extends State<StartScreen>
             const Positioned.fill(child: _FloatingClouds()),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) {
-                return Positioned.fill(
-                  child: _SparkleField(t: _sirenController.value),
-                );
-              },
+              builder: (context, _) => Positioned.fill(
+                child: _SparkleField(t: _sirenController.value),
+              ),
             ),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) {
-                return Positioned.fill(
-                  child: _SirenGlowOverlay(t: _sirenController.value),
-                );
-              },
+              builder: (context, _) => Positioned.fill(
+                child: _SirenGlowOverlay(t: _sirenController.value),
+              ),
             ),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) {
-                return Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: _SkylineSilhouette(t: _sirenController.value),
-                );
-              },
+              builder: (context, _) => Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _SkylineSilhouette(t: _sirenController.value),
+              ),
             ),
             const Positioned.fill(child: _Vignette()),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) {
-                return Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: _SirenBar(t: _sirenController.value, topBar: true),
-                );
-              },
+              builder: (context, _) => Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: _SirenBar(t: _sirenController.value, topBar: true),
+              ),
             ),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) {
-                return Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: _SirenBar(t: _sirenController.value, topBar: false),
-                );
-              },
+              builder: (context, _) => Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: _SirenBar(t: _sirenController.value, topBar: false),
+              ),
             ),
             SafeArea(
               child: Column(
@@ -972,9 +840,7 @@ class _StartScreenState extends State<StartScreen>
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 6),
-
                   AnimatedBuilder(
                     animation: _introController,
                     builder: (context, child) {
@@ -999,9 +865,7 @@ class _StartScreenState extends State<StartScreen>
                       ),
                     ),
                   ),
-
                   const Spacer(),
-
                   AnimatedBuilder(
                     animation: Listenable.merge([
                       _bounceAnimation,
@@ -1048,9 +912,7 @@ class _StartScreenState extends State<StartScreen>
                       );
                     },
                   ),
-
                   const Spacer(),
-
                   AnimatedBuilder(
                     animation: _introController,
                     builder: (context, child) {
@@ -1143,7 +1005,6 @@ class FloatingPopup {
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
-
   @override
   State<GameScreen> createState() => _GameScreenState();
 }
@@ -1151,12 +1012,17 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   static const int laneCount = 3;
 
+  // NEW: Pre-game Subway Surfers style intro state
+  bool isIntroPhase = true;
+  late AnimationController _tapPulseController;
+
   int playerLane = 1;
   double playerY = 0.7;
   double playerLaneAnim = 1.0;
 
   int policeLane = 1;
-  double policeY = 0.9;
+  // Start police hidden off-screen during intro
+  double policeY = 1.2;
   double policeLaneAnim = 1.0;
   int policeLaneDelayCounter = 0;
 
@@ -1170,7 +1036,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   int score = 0;
   int highestScore = 0;
-
   int coins = 0;
   int highestCoins = 0;
   int level = 1;
@@ -1179,14 +1044,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   bool isGameOver = false;
   bool isArrested = false;
-
-  // Game Pause Implementation
   bool isPaused = false;
   int resumeCountdown = 0;
   Timer? countdownTimer;
-
   Timer? gameTimer;
-
   final Random random = Random();
 
   int tickCounter = 0;
@@ -1196,9 +1057,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double dragStartX = 0;
   double dragStartY = 0;
 
-  // ==========================================
-  // JUMP MECHANIC
-  // ==========================================
   bool isJumping = false;
   int jumpTick = 0;
   static const int jumpDuration = 20;
@@ -1218,7 +1076,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-
     _shakeController =
         AnimationController(
           vsync: this,
@@ -1273,15 +1130,21 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           if (mounted) setState(() {});
         });
 
-    startGame();
+    _tapPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+
+    setupGame();
   }
 
-  void startGame() {
+  // Prepares the idle state without starting the timer
+  void setupGame() {
     gameTimer?.cancel();
     countdownTimer?.cancel();
-
     items.clear();
     popups.clear();
+    dustParticles.clear();
 
     score = 0;
     coins = 0;
@@ -1292,22 +1155,22 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     playerLane = 1;
     playerLaneAnim = 1.0;
 
+    // Reset intro phase variables
+    isIntroPhase = true;
+    policeY = 1.2; // Hide police initially
     policeLane = 1;
-    policeY = 0.9;
     policeLaneAnim = 1.0;
     policeLaneDelayCounter = 0;
+
     sceneryOffset = 0;
-    dustParticles.clear();
+    tickCounter = 0;
+    roadOffset = 0;
+    nextSpawnTick = 35;
 
     isGameOver = false;
     isArrested = false;
     isPaused = false;
     resumeCountdown = 0;
-
-    tickCounter = 0;
-    roadOffset = 0;
-
-    nextSpawnTick = 35;
 
     isJumping = false;
     jumpTick = 0;
@@ -1320,24 +1183,30 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _gameOverController.reset();
     _levelUpController.reset();
 
+    // Start a slow ticker just for the idle character breathing animation
     gameTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
-      updateGame();
+      if (isIntroPhase) {
+        setState(() {}); // Just redraws screen for idle animation
+      } else {
+        updateGame();
+      }
     });
+  }
 
+  // Triggered when user taps the screen during Intro
+  void startChase() {
+    setState(() {
+      isIntroPhase = false;
+    });
     SoundManager.playBackgroundMusic();
   }
 
   void updateGame() {
     if (isGameOver || isPaused) return;
-
     setState(() {
       tickCounter++;
-
       roadOffset += speed * 500;
-
-      if (roadOffset > 80) {
-        roadOffset = 0;
-      }
+      if (roadOffset > 80) roadOffset = 0;
 
       sceneryOffset += speed * 260;
       if (sceneryOffset > _SceneryPainter.patternHeight) {
@@ -1348,10 +1217,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       policeLaneAnim += (policeLane - policeLaneAnim) * 0.22;
 
       policeLaneDelayCounter++;
-
       if (policeLaneDelayCounter > 15) {
         policeLaneDelayCounter = 0;
-
         if (policeLane < playerLane) {
           policeLane++;
         } else if (policeLane > playerLane) {
@@ -1359,6 +1226,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
       }
 
+      // Police dramatically catches up after intro tap
       double targetPoliceY = playerY + 0.13;
       policeY += (targetPoliceY - policeY) * 0.1;
 
@@ -1390,7 +1258,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           policeY - playerY < 0.09 &&
           !isArrested &&
           !isJumping) {
-        gameOver();
+        arrestPlayer();
         return;
       }
 
@@ -1401,52 +1269,41 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
       if (tickCounter >= nextSpawnTick) {
         int itemCount;
-
-        if (speedProgress < 0.15) {
+        if (speedProgress < 0.15)
           itemCount = 1;
-        } else if (speedProgress < 0.35) {
+        else if (speedProgress < 0.35)
           itemCount = 2;
-        } else if (speedProgress < 0.60) {
+        else if (speedProgress < 0.60)
           itemCount = 3;
-        } else if (speedProgress < 0.85) {
+        else if (speedProgress < 0.85)
           itemCount = 4;
-        } else {
+        else
           itemCount = 5;
-        }
 
         List<int> usedLanes = [];
-
         for (int i = 0; i < itemCount; i++) {
           int lane;
-
           do {
             lane = random.nextInt(laneCount);
           } while (usedLanes.contains(lane) && usedLanes.length < laneCount);
-
           usedLanes.add(lane);
 
           double chance = random.nextDouble();
           double carChance = (0.25 + (speed - 0.006) * 6).clamp(0.25, 0.45);
           double coinChance = 0.45 + (speedProgress * 0.25);
-
-          if (coinChance > 0.70) {
-            coinChance = 0.70;
-          }
+          if (coinChance > 0.70) coinChance = 0.70;
 
           ItemType type;
-
-          if (chance < coinChance) {
+          if (chance < coinChance)
             type = ItemType.coin;
-          } else if (chance < coinChance + carChance) {
+          else if (chance < coinChance + carChance)
             type = ItemType.car;
-          } else if (chance < coinChance + carChance + 0.15) {
+          else if (chance < coinChance + carChance + 0.15)
             type = ItemType.barricade;
-          } else {
+          else
             type = ItemType.bush;
-          }
 
           String? carImg;
-
           if (type == ItemType.car) {
             carImg = random.nextBool()
                 ? 'assets/game/car1.png'
@@ -1454,20 +1311,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           }
 
           double spawnY = -0.18 - (i * 0.08);
-
           items.add(
             FallingItem(lane: lane, y: spawnY, type: type, carImage: carImg),
           );
         }
 
         int baseGap = (48 - (speedProgress * 34)).round();
-
-        if (baseGap < 12) {
-          baseGap = 12;
-        }
-
-        int randomVariance = random.nextInt(10);
-        nextSpawnTick = tickCounter + baseGap + randomVariance;
+        if (baseGap < 12) baseGap = 12;
+        nextSpawnTick = tickCounter + baseGap + random.nextInt(10);
       }
 
       for (var item in items) {
@@ -1475,10 +1326,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       }
 
       for (var item in List<FallingItem>.from(items)) {
-        if (item.dodged) {
-          continue;
-        }
-
+        if (item.dodged) continue;
         if (item.lane == playerLane &&
             item.y > playerY - 0.06 &&
             item.y < playerY + 0.06) {
@@ -1524,10 +1372,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
       if (tickCounter % 90 == 0) {
         speed += 0.0008;
-
-        if (speed > 0.024) {
-          speed = 0.024;
-        }
+        if (speed > 0.024) speed = 0.024;
       }
 
       if (tickCounter % 15 == 0) {
@@ -1540,15 +1385,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         _levelUpController.forward(from: 0);
       }
 
-      if (score > highestScore) {
-        highestScore = score;
-      }
-      if (coins > highestCoins) {
-        highestCoins = coins;
-      }
-      if (level > highestLevel) {
-        highestLevel = level;
-      }
+      if (score > highestScore) highestScore = score;
+      if (coins > highestCoins) highestCoins = coins;
+      if (level > highestLevel) highestLevel = level;
     });
   }
 
@@ -1556,37 +1395,25 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     isArrested = true;
     policeLane = playerLane;
     policeY = playerY + 0.02;
-
     _shakeController.forward(from: 0);
     gameOver();
   }
 
   void gameOver() {
     isGameOver = true;
-
     isNewHighScore = score > highestScore;
-
-    if (score > highestScore) {
-      highestScore = score;
-    }
-    if (coins > highestCoins) {
-      highestCoins = coins;
-    }
-    if (level > highestLevel) {
-      highestLevel = level;
-    }
+    if (score > highestScore) highestScore = score;
+    if (coins > highestCoins) highestCoins = coins;
+    if (level > highestLevel) highestLevel = level;
 
     gameTimer?.cancel();
+    SoundManager.stopBackgroundMusic();
     SoundManager.playGameOver();
-
     _gameOverController.forward(from: 0);
   }
 
-  // ==========================================
-  // PAUSE CONTROLS
-  // ==========================================
   void pauseGame() {
-    if (isGameOver || isPaused || resumeCountdown > 0) return;
+    if (isGameOver || isPaused || resumeCountdown > 0 || isIntroPhase) return;
     setState(() {
       isPaused = true;
     });
@@ -1613,34 +1440,33 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void handleSwipe(double difference) {
+    if (isIntroPhase) return; // Disable swipes during intro
     const double swipeThreshold = 25;
-    if (difference.abs() < swipeThreshold) {
-      return;
-    }
-
-    if (difference > 0) {
+    if (difference.abs() < swipeThreshold) return;
+    if (difference > 0)
       moveRight();
-    } else {
+    else
       moveLeft();
-    }
   }
 
   void handleVerticalSwipe(double difference) {
+    if (isIntroPhase) return;
     const double swipeThreshold = 25;
-    if (difference < -swipeThreshold) {
-      triggerJump();
-    }
+    if (difference < -swipeThreshold) triggerJump();
   }
 
   void triggerJump() {
-    if (isGameOver || isJumping || isPaused || resumeCountdown > 0) return;
-
+    if (isGameOver ||
+        isJumping ||
+        isPaused ||
+        resumeCountdown > 0 ||
+        isIntroPhase)
+      return;
     setState(() {
       isJumping = true;
       jumpTick = 0;
       pendingPoliceJumpDelay = 6;
     });
-
     SoundManager.playJump();
   }
 
@@ -1665,7 +1491,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void restartGame() {
     setState(() {
-      startGame();
+      setupGame();
     });
   }
 
@@ -1678,6 +1504,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _gameOverController.dispose();
     _gameOverPulseController.dispose();
     _levelUpController.dispose();
+    _tapPulseController.dispose();
     super.dispose();
   }
 
@@ -1810,7 +1637,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ),
           ],
         );
-
       case ItemType.barricade:
       case ItemType.bush:
         final sway = sin((tickCounter + item.hashCode) * 0.06) * 2.5;
@@ -1835,7 +1661,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ),
           ],
         );
-
       case ItemType.coin:
         return buildItemWidget(item);
     }
@@ -1870,14 +1695,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ],
           ),
         );
-
       case ItemType.car:
         return safeImage(
           item.carImage ?? 'assets/game/car1.png',
           width: 80,
           height: 120,
         );
-
       case ItemType.barricade:
         return Container(
           width: 60,
@@ -1891,7 +1714,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             child: Icon(Icons.block, color: Colors.white, size: 26),
           ),
         );
-
       case ItemType.bush:
         return safeImage('assets/game/bushes.png', width: 55, height: 55);
     }
@@ -1904,22 +1726,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   Offset _squashStretch(int tick, bool jumping) {
     if (!jumping) return const Offset(1.0, 1.0);
-
     final progress = tick / jumpDuration;
     double scaleY = 1.0;
-
     if (progress < 0.15) {
-      final t = progress / 0.15;
-      scaleY = 1.0 - 0.18 * sin(t * pi);
+      scaleY = 1.0 - 0.18 * sin((progress / 0.15) * pi);
     } else if (progress > 0.85) {
-      final t = (progress - 0.85) / 0.15;
-      scaleY = 1.0 - 0.18 * sin(t * pi);
+      scaleY = 1.0 - 0.18 * sin(((progress - 0.85) / 0.15) * pi);
     } else {
       scaleY = 1.06;
     }
-
-    final scaleX = 2.0 - scaleY;
-    return Offset(scaleX, scaleY);
+    return Offset(2.0 - scaleY, scaleY);
   }
 
   Widget _resultStat(
@@ -1965,7 +1781,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-
     final roadWidth = size.width * 0.82;
     final laneWidth = roadWidth / laneCount;
     final roadLeft = (size.width - roadWidth) / 2;
@@ -1974,9 +1789,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     final double policeJumpOffset = policeIsJumping
         ? _jumpArc(policeJumpTick)
         : 0;
-
     final Offset playerSquash = _squashStretch(jumpTick, isJumping);
-
     final double shakeT = _shakeController.value;
     final double shakeDx = sin(shakeT * pi * 10) * (1 - shakeT) * 14;
     final double flashOpacity = shakeT > 0 ? (1 - shakeT) * 0.28 : 0.0;
@@ -1985,20 +1798,24 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       backgroundColor: const Color(0xFF2E7D32),
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        onTap: () {
+          // Triggers chase to start if in intro phase
+          if (isIntroPhase) {
+            startChase();
+          }
+        },
         onHorizontalDragStart: (details) {
           dragStartX = details.localPosition.dx;
         },
         onHorizontalDragEnd: (details) {
-          final endX = details.localPosition.dx;
-          final difference = endX - dragStartX;
+          final difference = details.localPosition.dx - dragStartX;
           handleSwipe(difference);
         },
         onVerticalDragStart: (details) {
           dragStartY = details.localPosition.dy;
         },
         onVerticalDragEnd: (details) {
-          final endY = details.localPosition.dy;
-          final difference = endY - dragStartY;
+          final difference = details.localPosition.dy - dragStartY;
           handleVerticalSwipe(difference);
         },
         child: Transform.translate(
@@ -2174,10 +1991,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
               ),
+
+              // Shadow for player
               Positioned(
                 left:
-                    roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 24,
-                top: playerY * size.height - playerJumpOffset + 52,
+                    roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 34,
+                top:
+                    playerY * size.height -
+                    playerJumpOffset +
+                    70, // adjusted down for bigger character
                 child: Opacity(
                   opacity: (0.32 * (1 - (playerJumpOffset / jumpHeight) * 0.75))
                       .clamp(0.06, 0.32),
@@ -2187,8 +2009,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       1.0,
                     ),
                     child: Container(
-                      width: 44,
-                      height: 12,
+                      width: 60,
+                      height: 14,
                       decoration: BoxDecoration(
                         color: Colors.black,
                         borderRadius: BorderRadius.circular(20),
@@ -2238,9 +2060,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
+              // CHANGED: Increased character size to 80x80 and adjusted offset. Added breathing animation during Intro Phase
               Positioned(
                 left:
-                    roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 30,
+                    roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 40,
                 top:
                     playerY * size.height -
                     playerJumpOffset -
@@ -2250,17 +2073,27 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     -0.22,
                     0.22,
                   ),
-                  child: Transform(
-                    alignment: Alignment.bottomCenter,
-                    transform: Matrix4.diagonal3Values(
-                      playerSquash.dx,
-                      playerSquash.dy,
-                      1.0,
-                    ),
-                    child: safeImage(
-                      'assets/game/character.gif',
-                      width: 60,
-                      height: 60,
+                  child: Transform.scale(
+                    // Idle breathing animation scale logic
+                    scale: isIntroPhase
+                        ? 1.0 +
+                              (sin(
+                                    DateTime.now().millisecondsSinceEpoch / 250,
+                                  ) *
+                                  0.03)
+                        : 1.0,
+                    child: Transform(
+                      alignment: Alignment.bottomCenter,
+                      transform: Matrix4.diagonal3Values(
+                        playerSquash.dx,
+                        playerSquash.dy,
+                        1.0,
+                      ),
+                      child: safeImage(
+                        'assets/game/character.gif',
+                        width: 80,
+                        height: 80,
+                      ),
                     ),
                   ),
                 ),
@@ -2287,56 +2120,177 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
-              // =========================
-              // PROFESSIONAL HUD
-              // =========================
-              Positioned(
-                top: 42,
-                left: 14,
-                right: 14,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: _hudCard(
+              // Intro Phase Overlay (Tap to escape)
+              if (isIntroPhase)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      child: Center(
+                        child: AnimatedBuilder(
+                          animation: _tapPulseController,
+                          builder: (context, child) {
+                            return Opacity(
+                              opacity: 0.4 + 0.6 * _tapPulseController.value,
+                              child: Transform.scale(
+                                scale: 0.95 + 0.05 * _tapPulseController.value,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.touch_app_rounded,
+                                      color: Colors.white,
+                                      size: 50,
+                                      shadows: [
+                                        Shadow(
+                                          color: Colors.black54,
+                                          blurRadius: 10,
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    const Text(
+                                      'TAP TO ESCAPE!',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 32,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 3,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.black87,
+                                            blurRadius: 10,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // HUD
+              if (!isIntroPhase)
+                Positioned(
+                  top: 42,
+                  left: 14,
+                  right: 14,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: _hudCard(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: const [
+                                  Icon(
+                                    Icons.bolt_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                  SizedBox(width: 5),
+                                  Text(
+                                    'SCORE',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Transform.scale(
+                                scale: _scoreBumpAnimation.value,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  '$score',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 23,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 1),
+                              Text(
+                                'BEST  $highestScore',
+                                style: const TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _hudCard(
+                        width: 72,
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.bolt_rounded,
+                              color: Colors.amberAccent,
+                              size: 20,
+                            ),
+                            Text(
+                              'LV $level',
+                              style: const TextStyle(
+                                color: Colors.amberAccent,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _hudCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Row(
-                              children: [
-                                const Icon(
-                                  Icons.bolt_rounded,
-                                  color: Colors.white,
-                                  size: 18,
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: const [
+                                Icon(
+                                  Icons.monetization_on_rounded,
+                                  color: Colors.amber,
+                                  size: 19,
                                 ),
-                                const SizedBox(width: 5),
-                                const Text(
-                                  'SCORE',
+                                SizedBox(width: 4),
+                                Text(
+                                  'COINS',
                                   style: TextStyle(
                                     color: Colors.white70,
                                     fontSize: 10,
                                     fontWeight: FontWeight.w800,
-                                    letterSpacing: 1.2,
+                                    letterSpacing: 1.1,
                                   ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 2),
-                            Transform.scale(
-                              scale: _scoreBumpAnimation.value,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                '$score',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 23,
-                                  fontWeight: FontWeight.w900,
-                                ),
+                            Text(
+                              '$coins',
+                              style: const TextStyle(
+                                color: Colors.amberAccent,
+                                fontSize: 23,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
-                            const SizedBox(height: 1),
                             Text(
-                              'BEST  $highestScore',
+                              'BEST  $highestCoins',
                               style: const TextStyle(
                                 color: Colors.white60,
                                 fontSize: 10,
@@ -2346,94 +2300,23 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                           ],
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-
-                    _hudCard(
-                      width: 72,
-                      child: Column(
-                        children: [
-                          const Icon(
-                            Icons.bolt_rounded,
-                            color: Colors.amberAccent,
-                            size: 20,
-                          ),
-                          Text(
-                            'LV $level',
-                            style: const TextStyle(
-                              color: Colors.amberAccent,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w900,
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: pauseGame,
+                        child: _hudCard(
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: Icon(
+                              Icons.pause_rounded,
+                              color: Colors.white,
+                              size: 28,
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-
-                    _hudCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              const Icon(
-                                Icons.monetization_on_rounded,
-                                color: Colors.amber,
-                                size: 19,
-                              ),
-                              const SizedBox(width: 4),
-                              const Text(
-                                'COINS',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 1.1,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '$coins',
-                            style: const TextStyle(
-                              color: Colors.amberAccent,
-                              fontSize: 23,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          Text(
-                            'BEST  $highestCoins',
-                            style: const TextStyle(
-                              color: Colors.white60,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(width: 8),
-                    // Pause Button
-                    GestureDetector(
-                      onTap: pauseGame,
-                      child: _hudCard(
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 4),
-                          child: Icon(
-                            Icons.pause_rounded,
-                            color: Colors.white,
-                            size: 28,
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
 
               if (_levelUpController.value > 0)
                 Positioned(
@@ -2444,18 +2327,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     child: Builder(
                       builder: (context) {
                         final v = _levelUpController.value;
-                        double opacity;
-                        double scale;
+                        double opacity, scale;
                         if (v < 0.25) {
-                          final t = v / 0.25;
-                          opacity = t;
-                          scale = 0.7 + 0.3 * Curves.easeOutBack.transform(t);
+                          opacity = v / 0.25;
+                          scale =
+                              0.7 +
+                              0.3 * Curves.easeOutBack.transform(v / 0.25);
                         } else if (v < 0.7) {
                           opacity = 1.0;
                           scale = 1.0;
                         } else {
-                          final t = (v - 0.7) / 0.3;
-                          opacity = (1 - t).clamp(0.0, 1.0);
+                          opacity = (1 - ((v - 0.7) / 0.3)).clamp(0.0, 1.0);
                           scale = 1.0;
                         }
                         return Opacity(
@@ -2518,9 +2400,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
-              // =========================
-              // PAUSE MENU OVERLAYS
-              // =========================
               if (resumeCountdown > 0)
                 Positioned.fill(
                   child: Container(
@@ -2616,7 +2495,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       final overlayOpacity =
                           Curves.easeOut.transform(_gameOverController.value) *
                           0.88;
-
                       return Container(
                         color: Colors.black.withValues(alpha: overlayOpacity),
                         child: Center(
@@ -2716,7 +2594,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                       ),
                                     ),
                                     const SizedBox(height: 14),
-
                                     Text(
                                       isArrested ? 'GAME OVER' : 'RUN ENDED',
                                       style: const TextStyle(
@@ -2739,7 +2616,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                       ),
                                     ),
                                     const SizedBox(height: 20),
-
                                     Row(
                                       children: [
                                         Expanded(
@@ -2834,7 +2710,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                         ],
                                       ),
                                     ),
-
                                     if (isNewHighScore)
                                       Padding(
                                         padding: const EdgeInsets.only(top: 13),
@@ -2859,9 +2734,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                           ],
                                         ),
                                       ),
-
                                     const SizedBox(height: 20),
-
                                     SizedBox(
                                       width: double.infinity,
                                       height: 52,
@@ -2916,9 +2789,7 @@ class _SceneryPainter extends CustomPainter {
   final double offset;
   final bool isLeft;
   static const double patternHeight = 240.0;
-
   _SceneryPainter({required this.offset, required this.isLeft});
-
   @override
   void paint(Canvas canvas, Size size) {
     final buildingPaint = Paint()
@@ -2929,13 +2800,10 @@ class _SceneryPainter extends CustomPainter {
       ..color = Colors.green.shade900.withValues(alpha: 0.55);
     final trunkPaint = Paint()
       ..color = Colors.brown.shade800.withValues(alpha: 0.55);
-
     double startY = -patternHeight + (offset % patternHeight);
     int i = 0;
-
     while (startY < size.height) {
       final isBuilding = (i + (isLeft ? 0 : 1)).isEven;
-
       if (isBuilding) {
         final w = size.width * 0.68;
         final h = 92.0;
@@ -2949,7 +2817,6 @@ class _SceneryPainter extends CustomPainter {
           RRect.fromRectAndRadius(rect, const Radius.circular(3)),
           buildingPaint,
         );
-
         for (int r = 0; r < 3; r++) {
           for (int c = 0; c < 2; c++) {
             canvas.drawRect(
@@ -2970,7 +2837,6 @@ class _SceneryPainter extends CustomPainter {
         canvas.drawCircle(Offset(cx, cy), 24, treeTopPaint);
         canvas.drawCircle(Offset(cx - 10, cy + 8), 16, treeTopPaint);
       }
-
       startY += patternHeight;
       i++;
     }
@@ -2985,17 +2851,13 @@ class _SceneryPainter extends CustomPainter {
 class _SpeedLinesPainter extends CustomPainter {
   final double intensity;
   final double phase;
-
   _SpeedLinesPainter({required this.intensity, required this.phase});
-
   @override
   void paint(Canvas canvas, Size size) {
     if (intensity <= 0) return;
-
     final paint = Paint()
       ..color = Colors.white.withValues(alpha: 0.16 * intensity)
       ..strokeWidth = 2;
-
     final rnd = Random(3);
     for (int i = 0; i < 10; i++) {
       final fromLeft = i.isEven;
@@ -3005,7 +2867,6 @@ class _SpeedLinesPainter extends CustomPainter {
       final speedT = (phase * (1.2 + (i % 4) * 0.3) + i * 0.13) % 1.0;
       final len = 40.0 + intensity * 60;
       final y = speedT * (size.height + len) - len;
-
       canvas.drawLine(
         Offset(baseX, y),
         Offset(baseX + (fromLeft ? -8 : 8), y + len),
@@ -3026,7 +2887,6 @@ class _DustParticle {
   double drift;
   int life;
   static const int maxLife = 20;
-
   _DustParticle({
     required this.laneAnim,
     required this.y,
@@ -3037,27 +2897,21 @@ class _DustParticle {
 
 class DashedLinePainter extends CustomPainter {
   final double offset;
-
   DashedLinePainter({required this.offset});
-
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = Colors.white70
       ..strokeWidth = 4;
-
     const dashHeight = 30.0;
     const dashSpace = 30.0;
-
     double startY = -80 + offset;
-
     while (startY < size.height) {
       canvas.drawLine(
         Offset(size.width / 2, startY),
         Offset(size.width / 2, startY + dashHeight),
         paint,
       );
-
       startY += dashHeight + dashSpace;
     }
   }
