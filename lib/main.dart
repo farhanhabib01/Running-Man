@@ -4,17 +4,45 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 
+// ==========================================
+// SOUND MANAGER
+// Preloads every sound once so playback is instant with no
+// first-play decode delay. Uses seek(0) + resume() to replay
+// instead of play(), which avoids reloading the asset each time.
+//
+// Every coin collision uses a fresh low-latency player. This prevents
+// stale player state from blocking sounds during repeated pickups,
+// game over/restart, or after returning to the app.
+//
+// FIX (background music not playing):
+// bg uses the default (MediaPlayer-backed) player mode, not
+// lowLatency. On that mode, resume() only works on a player that
+// has ALREADY been started at least once via play() and then
+// paused - calling resume() on a player that was only ever
+// setSourceAsset()'d (never actually played) does nothing on
+// native side. That's why bg never made a sound while jump/coin
+// (which use lowLatency mode) worked fine.
+// Fix: the first call to playBackgroundMusic() uses play() to
+// actually start it; every call after that (replays) uses the
+// original fast seek(0)+resume() path. stopBackgroundMusic()
+// resets the "started" flag so a later play again uses play().
+// ==========================================
 class SoundManager {
   static final AudioPlayer bg = AudioPlayer();
   static final List<AudioPlayer> coinPool = List.generate(
     4,
     (_) => AudioPlayer(),
   );
+  static int _coinIndex = 0;
   static final AudioPlayer jump = AudioPlayer();
   static final AudioPlayer gameOver = AudioPlayer();
 
   static bool _preloaded = false;
   static bool _preloading = false;
+
+  // Tracks whether bg has actually been started via play() at least
+  // once. Needed because resume() is a no-op on a never-played
+  // MediaPlayer-backed AudioPlayer.
   static bool _bgStarted = false;
 
   static Future<void> preload() async {
@@ -42,8 +70,11 @@ class SoundManager {
       }
 
       await Future.wait(loadTasks);
+
       _preloaded = true;
-    } catch (_) {} finally {
+    } catch (_) {
+      // If any asset is missing, the game should still run silently.
+    } finally {
       _preloading = false;
     }
   }
@@ -51,9 +82,12 @@ class SoundManager {
   static Future<void> playBackgroundMusic() async {
     try {
       if (!_bgStarted) {
+        // First ever start: must use play(), resume() won't work yet.
         await bg.play(AssetSource('sounds/background.mp3'));
         _bgStarted = true;
       } else {
+        // Already started before (just paused/stopped-and-restarted
+        // in-session) - fast path, no reload needed.
         await bg.seek(Duration.zero);
         await bg.resume();
       }
@@ -63,16 +97,32 @@ class SoundManager {
   static Future<void> stopBackgroundMusic() async {
     try {
       await bg.stop();
+      // stop() fully resets native player state, so next play must
+      // go through play() again, not resume().
       _bgStarted = false;
     } catch (_) {}
   }
 
+  // FIX (coin / jump / gameover sound stops working after a while,
+  // or after restarting the game):
+  // seek(0)+resume() only reliably replays a player that is already
+  // in a "started then paused" state. In practice (especially after
+  // the game restarts or many rapid replays happen) these effect
+  // players can end up in a state where resume() silently does
+  // nothing. stop() + play(source) always resets the player to a
+  // clean state first and then starts fresh, so it works every
+  // single time regardless of what happened before - this is the
+  // reliable pattern for one-shot sound effects.
+  // Every pickup gets its own temporary player. This avoids stale shared
+  // player state, so repeated coins, game over/restart, and reopening the
+  // app do not prevent the next successful coin hit from playing its sound.
   static void playCoin() {
     _playCoinFresh();
   }
 
   static Future<void> _playCoinFresh() async {
     final player = AudioPlayer();
+
     try {
       await player.setPlayerMode(PlayerMode.lowLatency);
       await player.setReleaseMode(ReleaseMode.release);
@@ -102,8 +152,12 @@ class SoundManager {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Allow all sound effects to mix together instead of one interrupting
+  // another - this is what stops the coin sound from cutting off the
+  // background music.
   await AudioPlayer.global.setAudioContext(
-    const AudioContext(
+    AudioContext(
       android: AudioContextAndroid(
         isSpeakerphoneOn: false,
         stayAwake: false,
@@ -117,23 +171,29 @@ void main() async {
       ),
     ),
   );
+
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      title: 'Runner Chase Final',
+    return MaterialApp(
+      title: 'Runner Chase Final TEST Game version v1.0.0',
       debugShowCheckedModeBanner: false,
-      home: StartScreen(),
+      home: const StartScreen(),
     );
   }
 }
 
+// ==========================================
+// DECORATIVE FLOATING CLOUDS
+// ==========================================
 class _FloatingClouds extends StatefulWidget {
   const _FloatingClouds();
+
   @override
   State<_FloatingClouds> createState() => _FloatingCloudsState();
 }
@@ -141,6 +201,7 @@ class _FloatingClouds extends StatefulWidget {
 class _FloatingCloudsState extends State<_FloatingClouds>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
+
   final List<double> _startOffsets = [0.0, 0.35, 0.65, 0.85, 0.5];
   final List<double> _speeds = [0.55, 1.0, 0.8, 1.3, 0.65];
   final List<double> _sizes = [70, 46, 90, 38, 60];
@@ -174,6 +235,7 @@ class _FloatingCloudsState extends State<_FloatingClouds>
                 final t =
                     (_controller.value * _speeds[i] + _startOffsets[i]) % 1.0;
                 final left = t * (width + _sizes[i]) - _sizes[i];
+
                 return Positioned(
                   left: left,
                   top: constraints.maxHeight * _verticalPositions[i],
@@ -198,13 +260,19 @@ class _FloatingCloudsState extends State<_FloatingClouds>
   }
 }
 
+// ==========================================
+// POLICE SIREN BAR
+// ==========================================
 class _SirenBar extends StatelessWidget {
-  final double t;
+  final double t; // 0..1 animation progress
   final bool topBar;
+
   const _SirenBar({required this.t, required this.topBar});
+
   @override
   Widget build(BuildContext context) {
-    final wave = (sin(t * 2 * pi) + 1) / 2;
+    // Two lobes of light chasing each other across the strip.
+    final wave = (sin(t * 2 * pi) + 1) / 2; // 0..1
     return Container(
       height: 5,
       decoration: BoxDecoration(
@@ -222,9 +290,14 @@ class _SirenBar extends StatelessWidget {
   }
 }
 
+// ==========================================
+// SIREN GLOW OVERLAY
+// ==========================================
 class _SirenGlowOverlay extends StatelessWidget {
-  final double t;
+  final double t; // 0..1
+
   const _SirenGlowOverlay({required this.t});
+
   @override
   Widget build(BuildContext context) {
     final wave = (sin(t * 2 * pi) + 1) / 2;
@@ -249,8 +322,12 @@ class _SirenGlowOverlay extends StatelessWidget {
   }
 }
 
+// ==========================================
+// VIGNETTE
+// ==========================================
 class _Vignette extends StatelessWidget {
   const _Vignette();
+
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
@@ -268,13 +345,19 @@ class _Vignette extends StatelessWidget {
   }
 }
 
+// ==========================================
+// SPARKLE PARTICLES
+// ==========================================
 class _SparkleField extends StatelessWidget {
-  final double t;
+  final double t; // 0..1 looping progress
+
   const _SparkleField({required this.t});
+
   static final List<Offset> _seeds = List.generate(18, (i) {
     final rnd = Random(i * 97);
     return Offset(rnd.nextDouble(), rnd.nextDouble());
   });
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -289,6 +372,7 @@ class _SparkleField extends StatelessWidget {
             final dy = h * (1 - localT);
             final dx = seed.dx * w + sin(localT * 4 * pi + i) * 10;
             final twinkle = (sin(t * 2 * pi * (2 + i % 3) + i) + 1) / 2;
+
             return Positioned(
               left: dx,
               top: dy,
@@ -311,9 +395,14 @@ class _SparkleField extends StatelessWidget {
   }
 }
 
+// ==========================================
+// CITY SKYLINE SILHOUETTE
+// ==========================================
 class _SkylineSilhouette extends StatelessWidget {
-  final double t;
+  final double t; // 0..1 looping progress, drives window blink
+
   const _SkylineSilhouette({required this.t});
+
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
@@ -332,25 +421,30 @@ class _SkylineSilhouette extends StatelessWidget {
 class _SkylinePainter extends CustomPainter {
   final double t;
   _SkylinePainter({required this.t});
+
   @override
   void paint(Canvas canvas, Size size) {
     final buildingPaint = Paint()..color = Colors.black.withValues(alpha: 0.38);
     final windowPaint = Paint();
+
     final rnd = Random(7);
     double x = -20;
     int seed = 0;
+
     while (x < size.width + 20) {
       final w = 34.0 + rnd.nextDouble() * 46;
       final h = 55.0 + rnd.nextDouble() * 85;
       final rect = Rect.fromLTWH(x, size.height - h, w, h);
       canvas.drawRect(rect, buildingPaint);
+
+      // A sparse grid of windows, some blinking on a slow cycle.
       final cols = (w / 12).floor().clamp(1, 6);
       final rows = (h / 16).floor().clamp(1, 8);
       for (int r = 0; r < rows; r++) {
         for (int c = 0; c < cols; c++) {
           seed++;
-          if (seed % 3 == 0) continue;
-          final blink = (sin(t * 2 * pi * 1.3 + seed * 0.7) + 1) / 2;
+          if (seed % 3 == 0) continue; // leave gaps, not every window lit
+          final blink = (sin(t * 2 * pi * 1.3 + seed * 0.7) + 1) / 2; // 0..1
           final alpha = (0.10 + blink * 0.22).clamp(0.0, 0.32);
           windowPaint.color = Colors.amberAccent.withValues(alpha: alpha);
           canvas.drawRect(
@@ -359,18 +453,24 @@ class _SkylinePainter extends CustomPainter {
           );
         }
       }
+
       x += w + 6;
     }
   }
+
   @override
   bool shouldRepaint(covariant _SkylinePainter oldDelegate) {
     return oldDelegate.t != t;
   }
 }
 
+// ==========================================
+// RADAR RING PAINTER
+// ==========================================
 class _RadarRingPainter extends CustomPainter {
   final Color color;
   _RadarRingPainter({required this.color});
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
@@ -378,9 +478,11 @@ class _RadarRingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.2
       ..strokeCap = StrokeCap.round;
+
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
     const dashCount = 20;
+
     for (int i = 0; i < dashCount; i++) {
       if (i.isEven) {
         final startAngle = (2 * pi / dashCount) * i;
@@ -395,6 +497,7 @@ class _RadarRingPainter extends CustomPainter {
       }
     }
   }
+
   @override
   bool shouldRepaint(covariant _RadarRingPainter oldDelegate) {
     return oldDelegate.color != color;
@@ -403,6 +506,7 @@ class _RadarRingPainter extends CustomPainter {
 
 class StartScreen extends StatefulWidget {
   const StartScreen({super.key});
+
   @override
   State<StartScreen> createState() => _StartScreenState();
 }
@@ -411,6 +515,7 @@ class _StartScreenState extends State<StartScreen>
     with TickerProviderStateMixin {
   late AnimationController _bounceController;
   late Animation<double> _bounceAnimation;
+
   late AnimationController _introController;
   late Animation<double> _titleFade;
   late Animation<double> _titleSlide;
@@ -419,8 +524,10 @@ class _StartScreenState extends State<StartScreen>
   late Animation<double> _logoRotate;
   late Animation<double> _bottomFade;
   late Animation<double> _bottomSlide;
+
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+
   late AnimationController _bgController;
   late AnimationController _glowController;
   late AnimationController _ringRotateController;
@@ -429,12 +536,18 @@ class _StartScreenState extends State<StartScreen>
 
   double loadingProgress = 0.0;
   bool isLoaded = false;
+
   Timer? loadingTimer;
 
   @override
   void initState() {
     super.initState();
-    SoundManager.preload();
+
+    SoundManager.preload().then((_) {
+      if (mounted) {
+        SoundManager.playBackgroundMusic();
+      }
+    });
 
     _bounceController = AnimationController(
       vsync: this,
@@ -460,6 +573,7 @@ class _StartScreenState extends State<StartScreen>
         curve: const Interval(0.0, 0.45, curve: Curves.easeOutBack),
       ),
     );
+
     _logoFade = CurvedAnimation(
       parent: _introController,
       curve: const Interval(0.2, 0.75, curve: Curves.easeOut),
@@ -476,6 +590,7 @@ class _StartScreenState extends State<StartScreen>
         curve: const Interval(0.2, 0.75, curve: Curves.easeOutCubic),
       ),
     );
+
     _bottomFade = CurvedAnimation(
       parent: _introController,
       curve: const Interval(0.55, 1.0, curve: Curves.easeOut),
@@ -491,25 +606,31 @@ class _StartScreenState extends State<StartScreen>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
+
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.06).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
     _bgController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 5),
     )..repeat(reverse: true);
+
     _glowController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2200),
     )..repeat();
+
     _ringRotateController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 10),
     )..repeat();
+
     _shimmerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1600),
     )..repeat();
+
     _sirenController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1800),
@@ -522,8 +643,10 @@ class _StartScreenState extends State<StartScreen>
 
     loadingTimer = Timer.periodic(tickTime, (timer) {
       currentTick++;
+
       setState(() {
         loadingProgress = (currentTick / totalTicks).clamp(0.0, 1.0);
+
         if (loadingProgress >= 1.0) {
           isLoaded = true;
           timer.cancel();
@@ -553,7 +676,10 @@ class _StartScreenState extends State<StartScreen>
         pageBuilder: (context, animation, secondaryAnimation) =>
             const GameScreen(),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final fade = CurvedAnimation(parent: animation, curve: Curves.easeOut);
+          final fade = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOut,
+          );
           final scale = Tween<double>(begin: 1.06, end: 1.0).animate(
             CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
           );
@@ -570,6 +696,7 @@ class _StartScreenState extends State<StartScreen>
     final t = (_glowController.value + phase) % 1.0;
     final scale = 0.55 + t * 0.9;
     final opacity = (1 - t) * 0.32;
+
     return Opacity(
       opacity: opacity,
       child: Transform.scale(
@@ -725,6 +852,7 @@ class _StartScreenState extends State<StartScreen>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+
     return Scaffold(
       body: AnimatedBuilder(
         animation: _bgController,
@@ -751,40 +879,63 @@ class _StartScreenState extends State<StartScreen>
             const Positioned.fill(child: _FloatingClouds()),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) => Positioned.fill(child: _SparkleField(t: _sirenController.value)),
+              builder: (context, _) {
+                return Positioned.fill(
+                  child: _SparkleField(t: _sirenController.value),
+                );
+              },
             ),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) => Positioned.fill(child: _SirenGlowOverlay(t: _sirenController.value)),
+              builder: (context, _) {
+                return Positioned.fill(
+                  child: _SirenGlowOverlay(t: _sirenController.value),
+                );
+              },
             ),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) => Positioned(
-                left: 0, right: 0, bottom: 0,
-                child: _SkylineSilhouette(t: _sirenController.value),
-              ),
+              builder: (context, _) {
+                return Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: _SkylineSilhouette(t: _sirenController.value),
+                );
+              },
             ),
             const Positioned.fill(child: _Vignette()),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) => Positioned(
-                top: 0, left: 0, right: 0,
-                child: _SirenBar(t: _sirenController.value, topBar: true),
-              ),
+              builder: (context, _) {
+                return Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: _SirenBar(t: _sirenController.value, topBar: true),
+                );
+              },
             ),
             AnimatedBuilder(
               animation: _sirenController,
-              builder: (context, _) => Positioned(
-                bottom: 0, left: 0, right: 0,
-                child: _SirenBar(t: _sirenController.value, topBar: false),
-              ),
+              builder: (context, _) {
+                return Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _SirenBar(t: _sirenController.value, topBar: false),
+                );
+              },
             ),
             SafeArea(
               child: Column(
                 children: [
                   const SizedBox(height: 40),
                   AnimatedBuilder(
-                    animation: Listenable.merge([_introController, _shimmerController]),
+                    animation: Listenable.merge([
+                      _introController,
+                      _shimmerController,
+                    ]),
                     builder: (context, child) {
                       final shimmerT = _shimmerController.value;
                       return Opacity(
@@ -795,7 +946,11 @@ class _StartScreenState extends State<StartScreen>
                             blendMode: BlendMode.srcIn,
                             shaderCallback: (bounds) {
                               return LinearGradient(
-                                colors: const [Colors.white, Colors.amberAccent, Colors.white],
+                                colors: const [
+                                  Colors.white,
+                                  Colors.amberAccent,
+                                  Colors.white,
+                                ],
                                 stops: const [0.35, 0.5, 0.65],
                                 begin: Alignment(-1 + 2 * shimmerT, 0),
                                 end: Alignment(1 + 2 * shimmerT, 0),
@@ -817,7 +972,9 @@ class _StartScreenState extends State<StartScreen>
                       ),
                     ),
                   ),
+
                   const SizedBox(height: 6),
+
                   AnimatedBuilder(
                     animation: _introController,
                     builder: (context, child) {
@@ -836,14 +993,21 @@ class _StartScreenState extends State<StartScreen>
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 3,
-                        shadows: const [Shadow(color: Colors.black45, blurRadius: 4)],
+                        shadows: const [
+                          Shadow(color: Colors.black45, blurRadius: 4),
+                        ],
                       ),
                     ),
                   ),
+
                   const Spacer(),
+
                   AnimatedBuilder(
                     animation: Listenable.merge([
-                      _bounceAnimation, _introController, _glowController, _ringRotateController,
+                      _bounceAnimation,
+                      _introController,
+                      _glowController,
+                      _ringRotateController,
                     ]),
                     builder: (context, child) {
                       return Opacity(
@@ -863,11 +1027,14 @@ class _StartScreenState extends State<StartScreen>
                                     _buildGlowRing(0.0),
                                     _buildGlowRing(0.5),
                                     Transform.rotate(
-                                      angle: _ringRotateController.value * 2 * pi,
+                                      angle:
+                                          _ringRotateController.value * 2 * pi,
                                       child: CustomPaint(
                                         size: const Size(150, 150),
                                         painter: _RadarRingPainter(
-                                          color: Colors.white.withValues(alpha: 0.35),
+                                          color: Colors.white.withValues(
+                                            alpha: 0.35,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -881,7 +1048,9 @@ class _StartScreenState extends State<StartScreen>
                       );
                     },
                   ),
+
                   const Spacer(),
+
                   AnimatedBuilder(
                     animation: _introController,
                     builder: (context, child) {
@@ -894,21 +1063,30 @@ class _StartScreenState extends State<StartScreen>
                       );
                     },
                     child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: size.width * 0.12, vertical: 30),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: size.width * 0.12,
+                        vertical: 30,
+                      ),
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 450),
                         transitionBuilder: (child, animation) {
                           return FadeTransition(
                             opacity: animation,
                             child: ScaleTransition(
-                              scale: Tween<double>(begin: 0.85, end: 1.0).animate(
-                                CurvedAnimation(parent: animation, curve: Curves.easeOutBack),
-                              ),
+                              scale: Tween<double>(begin: 0.85, end: 1.0)
+                                  .animate(
+                                    CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.easeOutBack,
+                                    ),
+                                  ),
                               child: child,
                             ),
                           );
                         },
-                        child: isLoaded ? _buildPlayButton() : _buildLoadingBar(),
+                        child: isLoaded
+                            ? _buildPlayButton()
+                            : _buildLoadingBar(),
                       ),
                     ),
                   ),
@@ -929,7 +1107,7 @@ class FallingItem {
   double y;
   ItemType type;
   String? carImage;
-  bool dodged = false; 
+  bool dodged = false;
 
   FallingItem({
     required this.lane,
@@ -942,7 +1120,7 @@ class FallingItem {
 class FloatingPopup {
   double x;
   double y;
-  int life; 
+  int life;
   static const int maxLife = 30;
   final String text;
 
@@ -954,7 +1132,7 @@ class FloatingPopup {
   });
 
   double get scale {
-    final t = 1 - (life / maxLife); 
+    final t = 1 - (life / maxLife);
     if (t < 0.2) {
       final p = t / 0.2;
       return 0.4 + 0.8 * Curves.easeOutBack.transform(p);
@@ -965,6 +1143,7 @@ class FloatingPopup {
 
 class GameScreen extends StatefulWidget {
   const GameScreen({super.key});
+
   @override
   State<GameScreen> createState() => _GameScreenState();
 }
@@ -972,17 +1151,12 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   static const int laneCount = 3;
 
-  // NEW: Pre-game Subway Surfers style intro state
-  bool isIntroPhase = true; 
-  late AnimationController _tapPulseController;
-
   int playerLane = 1;
   double playerY = 0.7;
   double playerLaneAnim = 1.0;
 
   int policeLane = 1;
-  // Start police hidden off-screen during intro
-  double policeY = 1.2;
+  double policeY = 0.9;
   double policeLaneAnim = 1.0;
   int policeLaneDelayCounter = 0;
 
@@ -996,6 +1170,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   int score = 0;
   int highestScore = 0;
+
   int coins = 0;
   int highestCoins = 0;
   int level = 1;
@@ -1004,10 +1179,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   bool isGameOver = false;
   bool isArrested = false;
+
+  // Game Pause Implementation
   bool isPaused = false;
   int resumeCountdown = 0;
   Timer? countdownTimer;
+
   Timer? gameTimer;
+
   final Random random = Random();
 
   int tickCounter = 0;
@@ -1017,95 +1196,119 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double dragStartX = 0;
   double dragStartY = 0;
 
+  // ==========================================
+  // JUMP MECHANIC
+  // ==========================================
   bool isJumping = false;
   int jumpTick = 0;
-  static const int jumpDuration = 20; 
-  static const double jumpHeight = 90; 
+  static const int jumpDuration = 20;
+  static const double jumpHeight = 90;
 
   bool policeIsJumping = false;
   int policeJumpTick = 0;
-  int pendingPoliceJumpDelay = 0; 
+  int pendingPoliceJumpDelay = 0;
 
-  late AnimationController _shakeController; 
-  late AnimationController _scoreBumpController; 
+  late AnimationController _shakeController;
+  late AnimationController _scoreBumpController;
   late Animation<double> _scoreBumpAnimation;
-  late AnimationController _gameOverController; 
-  late AnimationController _gameOverPulseController; 
+  late AnimationController _gameOverController;
+  late AnimationController _gameOverPulseController;
   late AnimationController _levelUpController;
 
   @override
   void initState() {
     super.initState();
-    _shakeController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 500),
-    )..addListener(() { if (mounted) setState(() {}); });
 
-    _scoreBumpController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 260),
-    )..addListener(() { if (mounted) setState(() {}); });
+    _shakeController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 500),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
+
+    _scoreBumpController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 260),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
 
     _scoreBumpAnimation = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween(begin: 1.0, end: 1.35).chain(CurveTween(curve: Curves.easeOut)), weight: 40,
+        tween: Tween(
+          begin: 1.0,
+          end: 1.35,
+        ).chain(CurveTween(curve: Curves.easeOut)),
+        weight: 40,
       ),
       TweenSequenceItem(
-        tween: Tween(begin: 1.35, end: 1.0).chain(CurveTween(curve: Curves.easeIn)), weight: 60,
+        tween: Tween(
+          begin: 1.35,
+          end: 1.0,
+        ).chain(CurveTween(curve: Curves.easeIn)),
+        weight: 60,
       ),
     ]).animate(_scoreBumpController);
 
-    _gameOverController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 700),
-    )..addListener(() { if (mounted) setState(() {}); });
+    _gameOverController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 700),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
 
     _gameOverPulseController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1100),
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
     )..repeat(reverse: true);
 
-    _levelUpController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1400),
-    )..addListener(() { if (mounted) setState(() {}); });
+    _levelUpController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 1400),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
 
-    _tapPulseController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 800),
-    )..repeat(reverse: true);
-
-    setupGame();
+    startGame();
   }
 
-  // Prepares the idle state without starting the timer
-  void setupGame() {
+  void startGame() {
     gameTimer?.cancel();
     countdownTimer?.cancel();
+
     items.clear();
     popups.clear();
-    dustParticles.clear();
 
     score = 0;
     coins = 0;
     level = 1;
     isNewHighScore = false;
     speed = 0.006;
-    
+
     playerLane = 1;
     playerLaneAnim = 1.0;
-    
-    // Reset intro phase variables
-    isIntroPhase = true;
-    policeY = 1.2; // Hide police initially
+
     policeLane = 1;
+    policeY = 0.9;
     policeLaneAnim = 1.0;
     policeLaneDelayCounter = 0;
-    
     sceneryOffset = 0;
-    tickCounter = 0;
-    roadOffset = 0;
-    nextSpawnTick = 35;
-    
+    dustParticles.clear();
+
     isGameOver = false;
     isArrested = false;
     isPaused = false;
     resumeCountdown = 0;
-    
+
+    tickCounter = 0;
+    roadOffset = 0;
+
+    nextSpawnTick = 35;
+
     isJumping = false;
     jumpTick = 0;
     policeIsJumping = false;
@@ -1117,30 +1320,24 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _gameOverController.reset();
     _levelUpController.reset();
 
-    // Start a slow ticker just for the idle character breathing animation
     gameTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
-      if (isIntroPhase) {
-        setState(() {}); // Just redraws screen for idle animation
-      } else {
-        updateGame();
-      }
+      updateGame();
     });
-  }
 
-  // Triggered when user taps the screen during Intro
-  void startChase() {
-    setState(() {
-      isIntroPhase = false;
-    });
     SoundManager.playBackgroundMusic();
   }
 
   void updateGame() {
     if (isGameOver || isPaused) return;
+
     setState(() {
       tickCounter++;
+
       roadOffset += speed * 500;
-      if (roadOffset > 80) roadOffset = 0;
+
+      if (roadOffset > 80) {
+        roadOffset = 0;
+      }
 
       sceneryOffset += speed * 260;
       if (sceneryOffset > _SceneryPainter.patternHeight) {
@@ -1151,8 +1348,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       policeLaneAnim += (policeLane - policeLaneAnim) * 0.22;
 
       policeLaneDelayCounter++;
+
       if (policeLaneDelayCounter > 15) {
         policeLaneDelayCounter = 0;
+
         if (policeLane < playerLane) {
           policeLane++;
         } else if (policeLane > playerLane) {
@@ -1160,7 +1359,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
       }
 
-      // Police dramatically catches up after intro tap
       double targetPoliceY = playerY + 0.13;
       policeY += (targetPoliceY - policeY) * 0.1;
 
@@ -1188,52 +1386,88 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
       }
 
-      if (policeLane == playerLane && policeY - playerY < 0.09 && !isArrested && !isJumping) {
-        arrestPlayer();
+      if (policeLane == playerLane &&
+          policeY - playerY < 0.09 &&
+          !isArrested &&
+          !isJumping) {
+        gameOver();
         return;
       }
 
-      double speedProgress = ((speed - 0.006) / (0.024 - 0.006)).clamp(0.0, 1.0);
+      double speedProgress = ((speed - 0.006) / (0.024 - 0.006)).clamp(
+        0.0,
+        1.0,
+      );
 
       if (tickCounter >= nextSpawnTick) {
         int itemCount;
-        if (speedProgress < 0.15) itemCount = 1;
-        else if (speedProgress < 0.35) itemCount = 2;
-        else if (speedProgress < 0.60) itemCount = 3;
-        else if (speedProgress < 0.85) itemCount = 4;
-        else itemCount = 5;
+
+        if (speedProgress < 0.15) {
+          itemCount = 1;
+        } else if (speedProgress < 0.35) {
+          itemCount = 2;
+        } else if (speedProgress < 0.60) {
+          itemCount = 3;
+        } else if (speedProgress < 0.85) {
+          itemCount = 4;
+        } else {
+          itemCount = 5;
+        }
 
         List<int> usedLanes = [];
+
         for (int i = 0; i < itemCount; i++) {
           int lane;
+
           do {
             lane = random.nextInt(laneCount);
           } while (usedLanes.contains(lane) && usedLanes.length < laneCount);
+
           usedLanes.add(lane);
 
           double chance = random.nextDouble();
           double carChance = (0.25 + (speed - 0.006) * 6).clamp(0.25, 0.45);
           double coinChance = 0.45 + (speedProgress * 0.25);
-          if (coinChance > 0.70) coinChance = 0.70;
+
+          if (coinChance > 0.70) {
+            coinChance = 0.70;
+          }
 
           ItemType type;
-          if (chance < coinChance) type = ItemType.coin;
-          else if (chance < coinChance + carChance) type = ItemType.car;
-          else if (chance < coinChance + carChance + 0.15) type = ItemType.barricade;
-          else type = ItemType.bush;
+
+          if (chance < coinChance) {
+            type = ItemType.coin;
+          } else if (chance < coinChance + carChance) {
+            type = ItemType.car;
+          } else if (chance < coinChance + carChance + 0.15) {
+            type = ItemType.barricade;
+          } else {
+            type = ItemType.bush;
+          }
 
           String? carImg;
+
           if (type == ItemType.car) {
-            carImg = random.nextBool() ? 'assets/game/car1.png' : 'assets/game/car2.png';
+            carImg = random.nextBool()
+                ? 'assets/game/car1.png'
+                : 'assets/game/car2.png';
           }
 
           double spawnY = -0.18 - (i * 0.08);
-          items.add(FallingItem(lane: lane, y: spawnY, type: type, carImage: carImg));
+
+          items.add(
+            FallingItem(lane: lane, y: spawnY, type: type, carImage: carImg),
+          );
         }
 
         int baseGap = (48 - (speedProgress * 34)).round();
-        if (baseGap < 12) baseGap = 12;
-        nextSpawnTick = tickCounter + baseGap + random.nextInt(10);
+
+        if (baseGap < 12) {
+          baseGap = 12;
+        }
+
+        int randomVariance = random.nextInt(10);
+        nextSpawnTick = tickCounter + baseGap + randomVariance;
       }
 
       for (var item in items) {
@@ -1241,12 +1475,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       }
 
       for (var item in List<FallingItem>.from(items)) {
-        if (item.dodged) continue;
-        if (item.lane == playerLane && item.y > playerY - 0.06 && item.y < playerY + 0.06) {
+        if (item.dodged) {
+          continue;
+        }
+
+        if (item.lane == playerLane &&
+            item.y > playerY - 0.06 &&
+            item.y < playerY + 0.06) {
           if (item.type == ItemType.coin) {
             coins += 1;
             score += 10;
-            popups.add(FloatingPopup(x: item.lane * 1.0, y: item.y, text: '+10'));
+            popups.add(
+              FloatingPopup(x: item.lane * 1.0, y: item.y, text: '+10'),
+            );
             items.remove(item);
             SoundManager.playCoin();
             _scoreBumpController.forward(from: 0);
@@ -1268,7 +1509,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       popups.removeWhere((popup) => popup.life <= 0);
 
       if (!isJumping && tickCounter % 5 == 0) {
-        dustParticles.add(_DustParticle(laneAnim: playerLaneAnim, y: playerY, drift: random.nextDouble() * 10 - 5));
+        dustParticles.add(
+          _DustParticle(
+            laneAnim: playerLaneAnim,
+            y: playerY,
+            drift: random.nextDouble() * 10 - 5,
+          ),
+        );
       }
       for (var dust in dustParticles) {
         dust.life--;
@@ -1277,7 +1524,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
       if (tickCounter % 90 == 0) {
         speed += 0.0008;
-        if (speed > 0.024) speed = 0.024;
+
+        if (speed > 0.024) {
+          speed = 0.024;
+        }
       }
 
       if (tickCounter % 15 == 0) {
@@ -1290,9 +1540,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         _levelUpController.forward(from: 0);
       }
 
-      if (score > highestScore) highestScore = score;
-      if (coins > highestCoins) highestCoins = coins;
-      if (level > highestLevel) highestLevel = level;
+      if (score > highestScore) {
+        highestScore = score;
+      }
+      if (coins > highestCoins) {
+        highestCoins = coins;
+      }
+      if (level > highestLevel) {
+        highestLevel = level;
+      }
     });
   }
 
@@ -1300,25 +1556,37 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     isArrested = true;
     policeLane = playerLane;
     policeY = playerY + 0.02;
+
     _shakeController.forward(from: 0);
     gameOver();
   }
 
   void gameOver() {
     isGameOver = true;
+
     isNewHighScore = score > highestScore;
-    if (score > highestScore) highestScore = score;
-    if (coins > highestCoins) highestCoins = coins;
-    if (level > highestLevel) highestLevel = level;
+
+    if (score > highestScore) {
+      highestScore = score;
+    }
+    if (coins > highestCoins) {
+      highestCoins = coins;
+    }
+    if (level > highestLevel) {
+      highestLevel = level;
+    }
 
     gameTimer?.cancel();
-    SoundManager.stopBackgroundMusic();
     SoundManager.playGameOver();
+
     _gameOverController.forward(from: 0);
   }
 
+  // ==========================================
+  // PAUSE CONTROLS
+  // ==========================================
   void pauseGame() {
-    if (isGameOver || isPaused || resumeCountdown > 0 || isIntroPhase) return;
+    if (isGameOver || isPaused || resumeCountdown > 0) return;
     setState(() {
       isPaused = true;
     });
@@ -1345,44 +1613,59 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void handleSwipe(double difference) {
-    if (isIntroPhase) return; // Disable swipes during intro
     const double swipeThreshold = 25;
-    if (difference.abs() < swipeThreshold) return;
-    if (difference > 0) moveRight();
-    else moveLeft();
+    if (difference.abs() < swipeThreshold) {
+      return;
+    }
+
+    if (difference > 0) {
+      moveRight();
+    } else {
+      moveLeft();
+    }
   }
 
   void handleVerticalSwipe(double difference) {
-    if (isIntroPhase) return;
     const double swipeThreshold = 25;
-    if (difference < -swipeThreshold) triggerJump();
+    if (difference < -swipeThreshold) {
+      triggerJump();
+    }
   }
 
   void triggerJump() {
-    if (isGameOver || isJumping || isPaused || resumeCountdown > 0 || isIntroPhase) return;
+    if (isGameOver || isJumping || isPaused || resumeCountdown > 0) return;
+
     setState(() {
       isJumping = true;
       jumpTick = 0;
       pendingPoliceJumpDelay = 6;
     });
+
     SoundManager.playJump();
   }
 
   void moveLeft() {
     if (!isGameOver && !isPaused && resumeCountdown == 0 && playerLane > 0) {
-      setState(() { playerLane--; });
+      setState(() {
+        playerLane--;
+      });
     }
   }
 
   void moveRight() {
-    if (!isGameOver && !isPaused && resumeCountdown == 0 && playerLane < laneCount - 1) {
-      setState(() { playerLane++; });
+    if (!isGameOver &&
+        !isPaused &&
+        resumeCountdown == 0 &&
+        playerLane < laneCount - 1) {
+      setState(() {
+        playerLane++;
+      });
     }
   }
 
   void restartGame() {
     setState(() {
-      setupGame();
+      startGame();
     });
   }
 
@@ -1395,7 +1678,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _gameOverController.dispose();
     _gameOverPulseController.dispose();
     _levelUpController.dispose();
-    _tapPulseController.dispose();
     super.dispose();
   }
 
@@ -1434,13 +1716,22 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.48),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16), width: 1),
-        boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 12, offset: Offset(0, 5))],
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.16),
+          width: 1,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black38,
+            blurRadius: 12,
+            offset: Offset(0, 5),
+          ),
+        ],
       ),
       child: child,
     );
   }
-  
+
   Widget _menuButton({
     required IconData icon,
     required String label,
@@ -1455,13 +1746,19 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         icon: Icon(icon, size: 23),
         label: Text(
           label,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1),
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1,
+          ),
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           foregroundColor: Colors.black,
           elevation: 8,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(17),
+          ),
         ),
       ),
     );
@@ -1513,6 +1810,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ),
           ],
         );
+
       case ItemType.barricade:
       case ItemType.bush:
         final sway = sin((tickCounter + item.hashCode) * 0.06) * 2.5;
@@ -1537,6 +1835,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ),
           ],
         );
+
       case ItemType.coin:
         return buildItemWidget(item);
     }
@@ -1559,7 +1858,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   shape: BoxShape.circle,
                   gradient: RadialGradient(
                     colors: [
-                      Colors.amberAccent.withValues(alpha: 0.22 + glowPulse * 0.18),
+                      Colors.amberAccent.withValues(
+                        alpha: 0.22 + glowPulse * 0.18,
+                      ),
                       Colors.transparent,
                     ],
                   ),
@@ -1569,18 +1870,28 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             ],
           ),
         );
+
       case ItemType.car:
-        return safeImage(item.carImage ?? 'assets/game/car1.png', width: 80, height: 120);
+        return safeImage(
+          item.carImage ?? 'assets/game/car1.png',
+          width: 80,
+          height: 120,
+        );
+
       case ItemType.barricade:
         return Container(
-          width: 60, height: 40,
+          width: 60,
+          height: 40,
           decoration: BoxDecoration(
             color: Colors.orange,
             borderRadius: BorderRadius.circular(4),
             border: Border.all(color: Colors.black, width: 2),
           ),
-          child: const Center(child: Icon(Icons.block, color: Colors.white, size: 26)),
+          child: const Center(
+            child: Icon(Icons.block, color: Colors.white, size: 26),
+          ),
         );
+
       case ItemType.bush:
         return safeImage('assets/game/bushes.png', width: 55, height: 55);
     }
@@ -1593,19 +1904,30 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   Offset _squashStretch(int tick, bool jumping) {
     if (!jumping) return const Offset(1.0, 1.0);
+
     final progress = tick / jumpDuration;
     double scaleY = 1.0;
+
     if (progress < 0.15) {
-      scaleY = 1.0 - 0.18 * sin((progress / 0.15) * pi);
+      final t = progress / 0.15;
+      scaleY = 1.0 - 0.18 * sin(t * pi);
     } else if (progress > 0.85) {
-      scaleY = 1.0 - 0.18 * sin(((progress - 0.85) / 0.15) * pi);
+      final t = (progress - 0.85) / 0.15;
+      scaleY = 1.0 - 0.18 * sin(t * pi);
     } else {
       scaleY = 1.06;
     }
-    return Offset(2.0 - scaleY, scaleY);
+
+    final scaleX = 2.0 - scaleY;
+    return Offset(scaleX, scaleY);
   }
 
-  Widget _resultStat(IconData icon, String label, String value, Color valueColor) {
+  Widget _resultStat(
+    IconData icon,
+    String label,
+    String value,
+    Color valueColor,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
       decoration: BoxDecoration(
@@ -1617,9 +1939,24 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         children: [
           Icon(icon, color: valueColor, size: 20),
           const SizedBox(height: 3),
-          Text(value, style: TextStyle(color: valueColor, fontSize: 18, fontWeight: FontWeight.w900)),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
           const SizedBox(height: 1),
-          Text(label, style: const TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white54,
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+            ),
+          ),
         ],
       ),
     );
@@ -1628,13 +1965,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+
     final roadWidth = size.width * 0.82;
     final laneWidth = roadWidth / laneCount;
     final roadLeft = (size.width - roadWidth) / 2;
 
     final double playerJumpOffset = isJumping ? _jumpArc(jumpTick) : 0;
-    final double policeJumpOffset = policeIsJumping ? _jumpArc(policeJumpTick) : 0;
+    final double policeJumpOffset = policeIsJumping
+        ? _jumpArc(policeJumpTick)
+        : 0;
+
     final Offset playerSquash = _squashStretch(jumpTick, isJumping);
+
     final double shakeT = _shakeController.value;
     final double shakeDx = sin(shakeT * pi * 10) * (1 - shakeT) * 14;
     final double flashOpacity = shakeT > 0 ? (1 - shakeT) * 0.28 : 0.0;
@@ -1643,20 +1985,20 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       backgroundColor: const Color(0xFF2E7D32),
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          // Triggers chase to start if in intro phase
-          if (isIntroPhase) {
-            startChase();
-          }
+        onHorizontalDragStart: (details) {
+          dragStartX = details.localPosition.dx;
         },
-        onHorizontalDragStart: (details) { dragStartX = details.localPosition.dx; },
         onHorizontalDragEnd: (details) {
-          final difference = details.localPosition.dx - dragStartX;
+          final endX = details.localPosition.dx;
+          final difference = endX - dragStartX;
           handleSwipe(difference);
         },
-        onVerticalDragStart: (details) { dragStartY = details.localPosition.dy; },
+        onVerticalDragStart: (details) {
+          dragStartY = details.localPosition.dy;
+        },
         onVerticalDragEnd: (details) {
-          final difference = details.localPosition.dy - dragStartY;
+          final endY = details.localPosition.dy;
+          final difference = endY - dragStartY;
           handleVerticalSwipe(difference);
         },
         child: Transform.translate(
@@ -1676,36 +2018,74 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               ),
 
               Positioned(
-                left: 0, top: 0, width: roadLeft, height: size.height,
-                child: CustomPaint(painter: _SceneryPainter(offset: sceneryOffset, isLeft: true)),
+                left: 0,
+                top: 0,
+                width: roadLeft,
+                height: size.height,
+                child: CustomPaint(
+                  painter: _SceneryPainter(offset: sceneryOffset, isLeft: true),
+                ),
               ),
               Positioned(
-                right: 0, top: 0, width: roadLeft, height: size.height,
-                child: CustomPaint(painter: _SceneryPainter(offset: sceneryOffset, isLeft: false)),
+                right: 0,
+                top: 0,
+                width: roadLeft,
+                height: size.height,
+                child: CustomPaint(
+                  painter: _SceneryPainter(
+                    offset: sceneryOffset,
+                    isLeft: false,
+                  ),
+                ),
               ),
 
               Positioned(
-                left: roadLeft, top: 0, width: roadWidth, height: size.height,
+                left: roadLeft,
+                top: 0,
+                width: roadWidth,
+                height: size.height,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
-                      colors: [Colors.grey[900]!, Colors.grey[800]!, Colors.grey[850]!, Colors.grey[900]!],
+                      colors: [
+                        Colors.grey[900]!,
+                        Colors.grey[800]!,
+                        Colors.grey[850]!,
+                        Colors.grey[900]!,
+                      ],
                       stops: const [0.0, 0.05, 0.95, 1.0],
                     ),
                   ),
                 ),
               ),
 
-              Positioned(left: roadLeft, top: 0, width: 6, height: size.height, child: Container(color: Colors.amber[700])),
-              Positioned(left: roadLeft + roadWidth - 6, top: 0, width: 6, height: size.height, child: Container(color: Colors.amber[700])),
+              Positioned(
+                left: roadLeft,
+                top: 0,
+                width: 6,
+                height: size.height,
+                child: Container(color: Colors.amber[700]),
+              ),
+              Positioned(
+                left: roadLeft + roadWidth - 6,
+                top: 0,
+                width: 6,
+                height: size.height,
+                child: Container(color: Colors.amber[700]),
+              ),
 
               ...List.generate(laneCount - 1, (index) {
                 double dividerLeft = roadLeft + (index + 1) * laneWidth;
                 return Positioned(
-                  left: dividerLeft - 2, top: 0, width: 4, height: size.height,
-                  child: CustomPaint(painter: DashedLinePainter(offset: roadOffset)),
+                  left: dividerLeft - 2,
+                  top: 0,
+                  width: 4,
+                  height: size.height,
+                  child: CustomPaint(
+                    painter: DashedLinePainter(offset: roadOffset),
+                  ),
                 );
               }),
 
@@ -1718,23 +2098,36 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               }),
 
               ...dustParticles.map((dust) {
-                final opacity = (dust.life / _DustParticle.maxLife).clamp(0.0, 1.0) * 0.35;
+                final opacity =
+                    (dust.life / _DustParticle.maxLife).clamp(0.0, 1.0) * 0.35;
                 final progress = 1 - (dust.life / _DustParticle.maxLife);
                 return Positioned(
-                  left: roadLeft + dust.laneAnim * laneWidth + laneWidth / 2 - 6 + dust.drift * progress,
+                  left:
+                      roadLeft +
+                      dust.laneAnim * laneWidth +
+                      laneWidth / 2 -
+                      6 +
+                      dust.drift * progress,
                   top: dust.y * size.height + 40 - (progress * 14),
                   child: Opacity(
                     opacity: opacity,
                     child: Container(
-                      width: 10 + progress * 8, height: 10 + progress * 8,
-                      decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: 0.5)),
+                      width: 10 + progress * 8,
+                      height: 10 + progress * 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.5),
+                      ),
                     ),
                   ),
                 );
               }),
 
               ...popups.map((popup) {
-                final opacity = (popup.life / FloatingPopup.maxLife).clamp(0.0, 1.0);
+                final opacity = (popup.life / FloatingPopup.maxLife).clamp(
+                  0.0,
+                  1.0,
+                );
                 return Positioned(
                   left: roadLeft + popup.x * laneWidth + laneWidth / 2 - 20,
                   top: popup.y * size.height,
@@ -1745,8 +2138,12 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                       child: Text(
                         popup.text,
                         style: const TextStyle(
-                          color: Colors.amberAccent, fontSize: 20, fontWeight: FontWeight.bold,
-                          shadows: [Shadow(color: Colors.black87, blurRadius: 4)],
+                          color: Colors.amberAccent,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          shadows: [
+                            Shadow(color: Colors.black87, blurRadius: 4),
+                          ],
                         ),
                       ),
                     ),
@@ -1755,74 +2152,115 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               }),
 
               Positioned(
-                left: roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 22,
+                left:
+                    roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 22,
                 top: policeY * size.height - policeJumpOffset + 48,
                 child: Opacity(
-                  opacity: (0.30 * (1 - (policeJumpOffset / jumpHeight) * 0.75)).clamp(0.06, 0.30),
+                  opacity: (0.30 * (1 - (policeJumpOffset / jumpHeight) * 0.75))
+                      .clamp(0.06, 0.30),
                   child: Transform.scale(
-                    scale: (1 - (policeJumpOffset / jumpHeight) * 0.4).clamp(0.5, 1.0),
+                    scale: (1 - (policeJumpOffset / jumpHeight) * 0.4).clamp(
+                      0.5,
+                      1.0,
+                    ),
                     child: Container(
-                      width: 40, height: 11,
-                      decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(20)),
+                      width: 40,
+                      height: 11,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
                     ),
                   ),
                 ),
               ),
-              
-              // Shadow for player
               Positioned(
-                left: roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 34,
-                top: playerY * size.height - playerJumpOffset + 70, // adjusted down for bigger character
+                left:
+                    roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 24,
+                top: playerY * size.height - playerJumpOffset + 52,
                 child: Opacity(
-                  opacity: (0.32 * (1 - (playerJumpOffset / jumpHeight) * 0.75)).clamp(0.06, 0.32),
+                  opacity: (0.32 * (1 - (playerJumpOffset / jumpHeight) * 0.75))
+                      .clamp(0.06, 0.32),
                   child: Transform.scale(
-                    scale: (1 - (playerJumpOffset / jumpHeight) * 0.4).clamp(0.5, 1.0),
+                    scale: (1 - (playerJumpOffset / jumpHeight) * 0.4).clamp(
+                      0.5,
+                      1.0,
+                    ),
                     child: Container(
-                      width: 60, height: 14,
-                      decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(20)),
+                      width: 44,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
                     ),
                   ),
                 ),
               ),
 
               Positioned(
-                left: roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 27,
+                left:
+                    roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 27,
                 top: policeY * size.height - policeJumpOffset,
-                child: safeImage('assets/game/police.png', width: 55, height: 55),
+                child: safeImage(
+                  'assets/game/police.png',
+                  width: 55,
+                  height: 55,
+                ),
               ),
 
               Positioned(
-                left: roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 10,
+                left:
+                    roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 10,
                 top: policeY * size.height - policeJumpOffset - 12,
                 child: Builder(
                   builder: (context) {
                     final onRed = (tickCounter ~/ 8) % 2 == 0;
-                    final sirenColor = onRed ? Colors.redAccent : Colors.blueAccent;
+                    final sirenColor = onRed
+                        ? Colors.redAccent
+                        : Colors.blueAccent;
                     return Container(
-                      width: 20, height: 9,
+                      width: 20,
+                      height: 9,
                       decoration: BoxDecoration(
                         color: sirenColor,
                         borderRadius: BorderRadius.circular(3),
-                        boxShadow: [BoxShadow(color: sirenColor.withValues(alpha: 0.85), blurRadius: 10, spreadRadius: 1)],
+                        boxShadow: [
+                          BoxShadow(
+                            color: sirenColor.withValues(alpha: 0.85),
+                            blurRadius: 10,
+                            spreadRadius: 1,
+                          ),
+                        ],
                       ),
                     );
                   },
                 ),
               ),
 
-              // CHANGED: Increased character size to 80x80 and adjusted offset. Added breathing animation during Intro Phase
               Positioned(
-                left: roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 40,
-                top: playerY * size.height - playerJumpOffset - (isJumping ? 0 : (sin(tickCounter * 0.35) + 1) * 2.5),
+                left:
+                    roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 30,
+                top:
+                    playerY * size.height -
+                    playerJumpOffset -
+                    (isJumping ? 0 : (sin(tickCounter * 0.35) + 1) * 2.5),
                 child: Transform.rotate(
-                  angle: ((playerLane - playerLaneAnim) * -0.5).clamp(-0.22, 0.22),
-                  child: Transform.scale(
-                    // Idle breathing animation scale logic
-                    scale: isIntroPhase ? 1.0 + (sin(DateTime.now().millisecondsSinceEpoch / 250) * 0.03) : 1.0,
-                    child: Transform(
-                      alignment: Alignment.bottomCenter,
-                      transform: Matrix4.diagonal3Values(playerSquash.dx, playerSquash.dy, 1.0),
-                      child: safeImage('assets/game/character.gif', width: 80, height: 80),
+                  angle: ((playerLane - playerLaneAnim) * -0.5).clamp(
+                    -0.22,
+                    0.22,
+                  ),
+                  child: Transform(
+                    alignment: Alignment.bottomCenter,
+                    transform: Matrix4.diagonal3Values(
+                      playerSquash.dx,
+                      playerSquash.dy,
+                      1.0,
+                    ),
+                    child: safeImage(
+                      'assets/game/character.gif',
+                      width: 60,
+                      height: 60,
                     ),
                   ),
                 ),
@@ -1832,7 +2270,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 child: IgnorePointer(
                   child: CustomPaint(
                     painter: _SpeedLinesPainter(
-                      intensity: (((speed - 0.006) / (0.024 - 0.006)) - 0.35).clamp(0.0, 1.0),
+                      intensity: (((speed - 0.006) / (0.024 - 0.006)) - 0.35)
+                          .clamp(0.0, 1.0),
                       phase: (tickCounter % 60) / 60,
                     ),
                   ),
@@ -1842,143 +2281,181 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
               if (flashOpacity > 0)
                 Positioned.fill(
                   child: IgnorePointer(
-                    child: Container(color: Colors.red.withValues(alpha: flashOpacity)),
-                  ),
-                ),
-
-              // Intro Phase Overlay (Tap to escape)
-              if (isIntroPhase)
-                Positioned.fill(
-                  child: IgnorePointer(
                     child: Container(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      child: Center(
-                        child: AnimatedBuilder(
-                          animation: _tapPulseController,
-                          builder: (context, child) {
-                            return Opacity(
-                              opacity: 0.4 + 0.6 * _tapPulseController.value,
-                              child: Transform.scale(
-                                scale: 0.95 + 0.05 * _tapPulseController.value,
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.touch_app_rounded, 
-                                      color: Colors.white, 
-                                      size: 50,
-                                      shadows: [Shadow(color: Colors.black54, blurRadius: 10)],
-                                    ),
-                                    const SizedBox(height: 10),
-                                    const Text(
-                                      'TAP TO ESCAPE!',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 32,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 3,
-                                        shadows: [Shadow(color: Colors.black87, blurRadius: 10)],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
+                      color: Colors.red.withValues(alpha: flashOpacity),
                     ),
                   ),
                 ),
 
-              // HUD
-              if (!isIntroPhase)
-                Positioned(
-                  top: 42, left: 14, right: 14,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: _hudCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: const [
-                                  Icon(Icons.bolt_rounded, color: Colors.white, size: 18),
-                                  SizedBox(width: 5),
-                                  Text('SCORE', style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Transform.scale(
-                                scale: _scoreBumpAnimation.value, alignment: Alignment.centerLeft,
-                                child: Text('$score', style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
-                              ),
-                              const SizedBox(height: 1),
-                              Text('BEST  $highestScore', style: const TextStyle(color: Colors.white60, fontSize: 10, fontWeight: FontWeight.w700)),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _hudCard(
-                        width: 72,
+              // =========================
+              // PROFESSIONAL HUD
+              // =========================
+              Positioned(
+                top: 42,
+                left: 14,
+                right: 14,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _hudCard(
                         child: Column(
-                          children: [
-                            const Icon(Icons.bolt_rounded, color: Colors.amberAccent, size: 20),
-                            Text('LV $level', style: const TextStyle(color: Colors.amberAccent, fontSize: 15, fontWeight: FontWeight.w900)),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _hudCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: const [
-                                Icon(Icons.monetization_on_rounded, color: Colors.amber, size: 19),
-                                SizedBox(width: 4),
-                                Text('COINS', style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+                              children: [
+                                const Icon(
+                                  Icons.bolt_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 5),
+                                const Text(
+                                  'SCORE',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 2),
-                            Text('$coins', style: const TextStyle(color: Colors.amberAccent, fontSize: 23, fontWeight: FontWeight.w900)),
-                            Text('BEST  $highestCoins', style: const TextStyle(color: Colors.white60, fontSize: 10, fontWeight: FontWeight.w700)),
+                            Transform.scale(
+                              scale: _scoreBumpAnimation.value,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '$score',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 23,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 1),
+                            Text(
+                              'BEST  $highestScore',
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ],
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      GestureDetector(
-                        onTap: pauseGame,
-                        child: _hudCard(
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(vertical: 4),
-                            child: Icon(Icons.pause_rounded, color: Colors.white, size: 28),
+                    ),
+                    const SizedBox(width: 8),
+
+                    _hudCard(
+                      width: 72,
+                      child: Column(
+                        children: [
+                          const Icon(
+                            Icons.bolt_rounded,
+                            color: Colors.amberAccent,
+                            size: 20,
+                          ),
+                          Text(
+                            'LV $level',
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+
+                    _hudCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              const Icon(
+                                Icons.monetization_on_rounded,
+                                color: Colors.amber,
+                                size: 19,
+                              ),
+                              const SizedBox(width: 4),
+                              const Text(
+                                'COINS',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.1,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$coins',
+                            style: const TextStyle(
+                              color: Colors.amberAccent,
+                              fontSize: 23,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          Text(
+                            'BEST  $highestCoins',
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(width: 8),
+                    // Pause Button
+                    GestureDetector(
+                      onTap: pauseGame,
+                      child: _hudCard(
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 4),
+                          child: Icon(
+                            Icons.pause_rounded,
+                            color: Colors.white,
+                            size: 28,
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+              ),
 
               if (_levelUpController.value > 0)
                 Positioned(
-                  top: 118, left: 0, right: 0,
+                  top: 118,
+                  left: 0,
+                  right: 0,
                   child: IgnorePointer(
                     child: Builder(
                       builder: (context) {
                         final v = _levelUpController.value;
-                        double opacity, scale;
+                        double opacity;
+                        double scale;
                         if (v < 0.25) {
-                          opacity = v / 0.25;
-                          scale = 0.7 + 0.3 * Curves.easeOutBack.transform(v / 0.25);
+                          final t = v / 0.25;
+                          opacity = t;
+                          scale = 0.7 + 0.3 * Curves.easeOutBack.transform(t);
                         } else if (v < 0.7) {
-                          opacity = 1.0; scale = 1.0;
+                          opacity = 1.0;
+                          scale = 1.0;
                         } else {
-                          opacity = (1 - ((v - 0.7) / 0.3)).clamp(0.0, 1.0);
+                          final t = (v - 0.7) / 0.3;
+                          opacity = (1 - t).clamp(0.0, 1.0);
                           scale = 1.0;
                         }
                         return Opacity(
@@ -1987,18 +2464,49 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                             child: Transform.scale(
                               scale: scale,
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 22,
+                                  vertical: 12,
+                                ),
                                 decoration: BoxDecoration(
-                                  gradient: const LinearGradient(colors: [Colors.amber, Colors.deepOrange]),
+                                  gradient: const LinearGradient(
+                                    colors: [Colors.amber, Colors.deepOrange],
+                                  ),
                                   borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [BoxShadow(color: Colors.amber.withValues(alpha: 0.55), blurRadius: 22, spreadRadius: 2)],
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.amber.withValues(
+                                        alpha: 0.55,
+                                      ),
+                                      blurRadius: 22,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(Icons.flash_on_rounded, color: Colors.white, size: 22),
+                                    const Icon(
+                                      Icons.flash_on_rounded,
+                                      color: Colors.white,
+                                      size: 22,
+                                    ),
                                     const SizedBox(width: 8),
-                                    Text('LEVEL $level', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 1.2, shadows: [Shadow(color: Colors.black38, blurRadius: 4)])),
+                                    Text(
+                                      'LEVEL $level',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1.2,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.black38,
+                                            blurRadius: 4,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -2010,6 +2518,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
+              // =========================
+              // PAUSE MENU OVERLAYS
+              // =========================
               if (resumeCountdown > 0)
                 Positioned.fill(
                   child: Container(
@@ -2017,7 +2528,14 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     child: Center(
                       child: Text(
                         '$resumeCountdown',
-                        style: const TextStyle(color: Colors.white, fontSize: 120, fontWeight: FontWeight.w900, shadows: [Shadow(color: Colors.black54, blurRadius: 10)]),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 120,
+                          fontWeight: FontWeight.w900,
+                          shadows: [
+                            Shadow(color: Colors.black54, blurRadius: 10),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -2033,23 +2551,53 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         padding: const EdgeInsets.all(24),
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                            begin: Alignment.topLeft, end: Alignment.bottomRight,
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                             colors: [Color(0xFF17202A), Color(0xFF0B1118)],
                           ),
                           borderRadius: BorderRadius.circular(28),
                           border: Border.all(color: Colors.white24, width: 1.5),
-                          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 24, offset: Offset(0, 12))],
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black54,
+                              blurRadius: 24,
+                              offset: Offset(0, 12),
+                            ),
+                          ],
                         ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text('PAUSED', style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 2)),
+                            const Text(
+                              'PAUSED',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 30,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 2,
+                              ),
+                            ),
                             const SizedBox(height: 30),
-                            _menuButton(icon: Icons.play_arrow_rounded, label: 'RESUME', color: Colors.greenAccent, onTap: startResumeCountdown),
+                            _menuButton(
+                              icon: Icons.play_arrow_rounded,
+                              label: 'RESUME',
+                              color: Colors.greenAccent,
+                              onTap: startResumeCountdown,
+                            ),
                             const SizedBox(height: 12),
-                            _menuButton(icon: Icons.replay_rounded, label: 'RESTART', color: Colors.amber, onTap: restartGame),
+                            _menuButton(
+                              icon: Icons.replay_rounded,
+                              label: 'RESTART',
+                              color: Colors.amber,
+                              onTap: restartGame,
+                            ),
                             const SizedBox(height: 12),
-                            _menuButton(icon: Icons.exit_to_app_rounded, label: 'QUIT', color: Colors.redAccent, onTap: quitApp),
+                            _menuButton(
+                              icon: Icons.exit_to_app_rounded,
+                              label: 'QUIT',
+                              color: Colors.redAccent,
+                              onTap: quitApp,
+                            ),
                           ],
                         ),
                       ),
@@ -2062,28 +2610,69 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   child: AnimatedBuilder(
                     animation: _gameOverPulseController,
                     builder: (context, child) {
-                      final t = Curves.easeInOut.transform(_gameOverPulseController.value);
-                      final overlayOpacity = Curves.easeOut.transform(_gameOverController.value) * 0.88;
+                      final t = Curves.easeInOut.transform(
+                        _gameOverPulseController.value,
+                      );
+                      final overlayOpacity =
+                          Curves.easeOut.transform(_gameOverController.value) *
+                          0.88;
+
                       return Container(
                         color: Colors.black.withValues(alpha: overlayOpacity),
                         child: Center(
                           child: Opacity(
-                            opacity: Curves.easeOut.transform(_gameOverController.value),
+                            opacity: Curves.easeOut.transform(
+                              _gameOverController.value,
+                            ),
                             child: Transform.scale(
-                              scale: 0.82 + 0.18 * Curves.easeOutBack.transform(_gameOverController.value),
+                              scale:
+                                  0.82 +
+                                  0.18 *
+                                      Curves.easeOutBack.transform(
+                                        _gameOverController.value,
+                                      ),
                               child: Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 24),
-                                padding: const EdgeInsets.fromLTRB(22, 22, 22, 20),
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                ),
+                                padding: const EdgeInsets.fromLTRB(
+                                  22,
+                                  22,
+                                  22,
+                                  20,
+                                ),
                                 decoration: BoxDecoration(
                                   gradient: LinearGradient(
-                                    begin: Alignment.topLeft, end: Alignment.bottomRight,
-                                    colors: [const Color(0xFF17202A), const Color(0xFF0B1118), Colors.red.shade900.withValues(alpha: 0.28)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      const Color(0xFF17202A),
+                                      const Color(0xFF0B1118),
+                                      Colors.red.shade900.withValues(
+                                        alpha: 0.28,
+                                      ),
+                                    ],
                                   ),
                                   borderRadius: BorderRadius.circular(28),
-                                  border: Border.all(color: Colors.redAccent.withValues(alpha: 0.55 + (t * 0.25)), width: 1.5),
+                                  border: Border.all(
+                                    color: Colors.redAccent.withValues(
+                                      alpha: 0.55 + (t * 0.25),
+                                    ),
+                                    width: 1.5,
+                                  ),
                                   boxShadow: [
-                                    BoxShadow(color: Colors.redAccent.withValues(alpha: 0.16 + (t * 0.12)), blurRadius: 28 + (t * 8), spreadRadius: 2),
-                                    const BoxShadow(color: Colors.black54, blurRadius: 24, offset: Offset(0, 12)),
+                                    BoxShadow(
+                                      color: Colors.redAccent.withValues(
+                                        alpha: 0.16 + (t * 0.12),
+                                      ),
+                                      blurRadius: 28 + (t * 8),
+                                      spreadRadius: 2,
+                                    ),
+                                    const BoxShadow(
+                                      color: Colors.black54,
+                                      blurRadius: 24,
+                                      offset: Offset(0, 12),
+                                    ),
                                   ],
                                 ),
                                 child: Column(
@@ -2092,69 +2681,216 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                     Transform.scale(
                                       scale: 0.96 + (t * 0.08),
                                       child: Container(
-                                        width: 78, height: 78,
+                                        width: 78,
+                                        height: 78,
                                         decoration: BoxDecoration(
                                           shape: BoxShape.circle,
-                                          gradient: RadialGradient(colors: [Colors.redAccent.withValues(alpha: 0.95), Colors.red.shade900]),
-                                          border: Border.all(color: Colors.white24, width: 2),
-                                          boxShadow: [BoxShadow(color: Colors.redAccent.withValues(alpha: 0.35), blurRadius: 20, spreadRadius: 2)],
+                                          gradient: RadialGradient(
+                                            colors: [
+                                              Colors.redAccent.withValues(
+                                                alpha: 0.95,
+                                              ),
+                                              Colors.red.shade900,
+                                            ],
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.white24,
+                                            width: 2,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.redAccent
+                                                  .withValues(alpha: 0.35),
+                                              blurRadius: 20,
+                                              spreadRadius: 2,
+                                            ),
+                                          ],
                                         ),
-                                        child: Icon(isArrested ? Icons.local_police_rounded : Icons.warning_amber_rounded, color: Colors.white, size: 42),
+                                        child: Icon(
+                                          isArrested
+                                              ? Icons.local_police_rounded
+                                              : Icons.warning_amber_rounded,
+                                          color: Colors.white,
+                                          size: 42,
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(height: 14),
-                                    Text(isArrested ? 'GAME OVER' : 'RUN ENDED', style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 2)),
+
+                                    Text(
+                                      isArrested ? 'GAME OVER' : 'RUN ENDED',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 30,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 2,
+                                      ),
+                                    ),
                                     const SizedBox(height: 4),
-                                    Text(isArrested ? 'YOU GOT CAUGHT!' : 'WATCH OUT NEXT TIME', style: TextStyle(color: Colors.redAccent.shade100, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+                                    Text(
+                                      isArrested
+                                          ? 'YOU GOT CAUGHT!'
+                                          : 'WATCH OUT NEXT TIME',
+                                      style: TextStyle(
+                                        color: Colors.redAccent.shade100,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 1.5,
+                                      ),
+                                    ),
                                     const SizedBox(height: 20),
+
                                     Row(
                                       children: [
-                                        Expanded(child: _resultStat(Icons.bolt_rounded, 'SCORE', '$score', Colors.white)),
+                                        Expanded(
+                                          child: _resultStat(
+                                            Icons.bolt_rounded,
+                                            'SCORE',
+                                            '$score',
+                                            Colors.white,
+                                          ),
+                                        ),
                                         const SizedBox(width: 8),
-                                        Expanded(child: _resultStat(Icons.monetization_on_rounded, 'COINS', '$coins', Colors.amberAccent)),
+                                        Expanded(
+                                          child: _resultStat(
+                                            Icons.monetization_on_rounded,
+                                            'COINS',
+                                            '$coins',
+                                            Colors.amberAccent,
+                                          ),
+                                        ),
                                         const SizedBox(width: 8),
-                                        Expanded(child: _resultStat(Icons.flash_on_rounded, 'LEVEL', '$level', Colors.cyanAccent)),
+                                        Expanded(
+                                          child: _resultStat(
+                                            Icons.flash_on_rounded,
+                                            'LEVEL',
+                                            '$level',
+                                            Colors.cyanAccent,
+                                          ),
+                                        ),
                                       ],
                                     ),
                                     const SizedBox(height: 10),
                                     Container(
                                       width: double.infinity,
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                      decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.055), borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.white.withValues(alpha: 0.08))),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 14,
+                                        vertical: 10,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.055,
+                                        ),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.08,
+                                          ),
+                                        ),
+                                      ),
                                       child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
                                         children: [
-                                          const Text('BEST COINS', style: TextStyle(color: Colors.white60, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1)),
-                                          Text('$highestCoins', style: const TextStyle(color: Colors.amber, fontSize: 15, fontWeight: FontWeight.w900)),
-                                          Container(width: 1, height: 18, color: Colors.white12),
-                                          const Text('BEST LEVEL', style: TextStyle(color: Colors.white60, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1)),
-                                          Text('$highestLevel', style: const TextStyle(color: Colors.cyanAccent, fontSize: 15, fontWeight: FontWeight.w900)),
+                                          const Text(
+                                            'BEST COINS',
+                                            style: TextStyle(
+                                              color: Colors.white60,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 1,
+                                            ),
+                                          ),
+                                          Text(
+                                            '$highestCoins',
+                                            style: const TextStyle(
+                                              color: Colors.amber,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                          Container(
+                                            width: 1,
+                                            height: 18,
+                                            color: Colors.white12,
+                                          ),
+                                          const Text(
+                                            'BEST LEVEL',
+                                            style: TextStyle(
+                                              color: Colors.white60,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 1,
+                                            ),
+                                          ),
+                                          Text(
+                                            '$highestLevel',
+                                            style: const TextStyle(
+                                              color: Colors.cyanAccent,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
                                         ],
                                       ),
                                     ),
+
                                     if (isNewHighScore)
                                       Padding(
                                         padding: const EdgeInsets.only(top: 13),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: const [
-                                            Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 18),
+                                            Icon(
+                                              Icons.emoji_events_rounded,
+                                              color: Colors.amber,
+                                              size: 18,
+                                            ),
                                             SizedBox(width: 6),
-                                            Text('NEW HIGH SCORE!', style: TextStyle(color: Colors.amberAccent, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 1)),
+                                            Text(
+                                              'NEW HIGH SCORE!',
+                                              style: TextStyle(
+                                                color: Colors.amberAccent,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w900,
+                                                letterSpacing: 1,
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       ),
+
                                     const SizedBox(height: 20),
+
                                     SizedBox(
-                                      width: double.infinity, height: 52,
+                                      width: double.infinity,
+                                      height: 52,
                                       child: ElevatedButton.icon(
                                         onPressed: restartGame,
-                                        icon: const Icon(Icons.replay_rounded, size: 23),
-                                        label: const Text('PLAY AGAIN', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1)),
+                                        icon: const Icon(
+                                          Icons.replay_rounded,
+                                          size: 23,
+                                        ),
+                                        label: const Text(
+                                          'PLAY AGAIN',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w900,
+                                            letterSpacing: 1,
+                                          ),
+                                        ),
                                         style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.amber, foregroundColor: Colors.black, elevation: 10,
-                                          shadowColor: Colors.amber.withValues(alpha: 0.35),
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+                                          backgroundColor: Colors.amber,
+                                          foregroundColor: Colors.black,
+                                          elevation: 10,
+                                          shadowColor: Colors.amber.withValues(
+                                            alpha: 0.35,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              17,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -2180,25 +2916,51 @@ class _SceneryPainter extends CustomPainter {
   final double offset;
   final bool isLeft;
   static const double patternHeight = 240.0;
+
   _SceneryPainter({required this.offset, required this.isLeft});
+
   @override
   void paint(Canvas canvas, Size size) {
-    final buildingPaint = Paint()..color = Colors.blueGrey.shade900.withValues(alpha: 0.55);
-    final windowPaint = Paint()..color = Colors.amberAccent.withValues(alpha: 0.30);
-    final treeTopPaint = Paint()..color = Colors.green.shade900.withValues(alpha: 0.55);
-    final trunkPaint = Paint()..color = Colors.brown.shade800.withValues(alpha: 0.55);
+    final buildingPaint = Paint()
+      ..color = Colors.blueGrey.shade900.withValues(alpha: 0.55);
+    final windowPaint = Paint()
+      ..color = Colors.amberAccent.withValues(alpha: 0.30);
+    final treeTopPaint = Paint()
+      ..color = Colors.green.shade900.withValues(alpha: 0.55);
+    final trunkPaint = Paint()
+      ..color = Colors.brown.shade800.withValues(alpha: 0.55);
+
     double startY = -patternHeight + (offset % patternHeight);
     int i = 0;
+
     while (startY < size.height) {
       final isBuilding = (i + (isLeft ? 0 : 1)).isEven;
+
       if (isBuilding) {
         final w = size.width * 0.68;
         final h = 92.0;
-        final rect = Rect.fromLTWH(isLeft ? size.width - w : 0, startY + 30, w, h);
-        canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(3)), buildingPaint);
+        final rect = Rect.fromLTWH(
+          isLeft ? size.width - w : 0,
+          startY + 30,
+          w,
+          h,
+        );
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(rect, const Radius.circular(3)),
+          buildingPaint,
+        );
+
         for (int r = 0; r < 3; r++) {
           for (int c = 0; c < 2; c++) {
-            canvas.drawRect(Rect.fromLTWH(rect.left + 8 + c * (w / 2), rect.top + 10 + r * 26, w / 2 - 16, 13), windowPaint);
+            canvas.drawRect(
+              Rect.fromLTWH(
+                rect.left + 8 + c * (w / 2),
+                rect.top + 10 + r * 26,
+                w / 2 - 16,
+                13,
+              ),
+              windowPaint,
+            );
           }
         }
       } else {
@@ -2208,10 +2970,12 @@ class _SceneryPainter extends CustomPainter {
         canvas.drawCircle(Offset(cx, cy), 24, treeTopPaint);
         canvas.drawCircle(Offset(cx - 10, cy + 8), 16, treeTopPaint);
       }
+
       startY += patternHeight;
       i++;
     }
   }
+
   @override
   bool shouldRepaint(covariant _SceneryPainter oldDelegate) {
     return oldDelegate.offset != offset;
@@ -2219,23 +2983,37 @@ class _SceneryPainter extends CustomPainter {
 }
 
 class _SpeedLinesPainter extends CustomPainter {
-  final double intensity; 
-  final double phase; 
+  final double intensity;
+  final double phase;
+
   _SpeedLinesPainter({required this.intensity, required this.phase});
+
   @override
   void paint(Canvas canvas, Size size) {
     if (intensity <= 0) return;
-    final paint = Paint()..color = Colors.white.withValues(alpha: 0.16 * intensity)..strokeWidth = 2;
+
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.16 * intensity)
+      ..strokeWidth = 2;
+
     final rnd = Random(3);
     for (int i = 0; i < 10; i++) {
       final fromLeft = i.isEven;
-      final baseX = fromLeft ? rnd.nextDouble() * size.width * 0.22 : size.width - rnd.nextDouble() * size.width * 0.22;
+      final baseX = fromLeft
+          ? rnd.nextDouble() * size.width * 0.22
+          : size.width - rnd.nextDouble() * size.width * 0.22;
       final speedT = (phase * (1.2 + (i % 4) * 0.3) + i * 0.13) % 1.0;
       final len = 40.0 + intensity * 60;
       final y = speedT * (size.height + len) - len;
-      canvas.drawLine(Offset(baseX, y), Offset(baseX + (fromLeft ? -8 : 8), y + len), paint);
+
+      canvas.drawLine(
+        Offset(baseX, y),
+        Offset(baseX + (fromLeft ? -8 : 8), y + len),
+        paint,
+      );
     }
   }
+
   @override
   bool shouldRepaint(covariant _SpeedLinesPainter oldDelegate) {
     return oldDelegate.intensity != intensity || oldDelegate.phase != phase;
@@ -2243,23 +3021,47 @@ class _SpeedLinesPainter extends CustomPainter {
 }
 
 class _DustParticle {
-  double laneAnim; double y; double drift; int life; static const int maxLife = 20;
-  _DustParticle({required this.laneAnim, required this.y, required this.drift, this.life = maxLife});
+  double laneAnim;
+  double y;
+  double drift;
+  int life;
+  static const int maxLife = 20;
+
+  _DustParticle({
+    required this.laneAnim,
+    required this.y,
+    required this.drift,
+    this.life = maxLife,
+  });
 }
 
 class DashedLinePainter extends CustomPainter {
   final double offset;
+
   DashedLinePainter({required this.offset});
+
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = Colors.white70..strokeWidth = 4;
-    const dashHeight = 30.0; const dashSpace = 30.0;
+    final paint = Paint()
+      ..color = Colors.white70
+      ..strokeWidth = 4;
+
+    const dashHeight = 30.0;
+    const dashSpace = 30.0;
+
     double startY = -80 + offset;
+
     while (startY < size.height) {
-      canvas.drawLine(Offset(size.width / 2, startY), Offset(size.width / 2, startY + dashHeight), paint);
+      canvas.drawLine(
+        Offset(size.width / 2, startY),
+        Offset(size.width / 2, startY + dashHeight),
+        paint,
+      );
+
       startY += dashHeight + dashSpace;
     }
   }
+
   @override
   bool shouldRepaint(covariant DashedLinePainter oldDelegate) {
     return oldDelegate.offset != offset;
