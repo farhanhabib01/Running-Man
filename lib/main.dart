@@ -216,8 +216,7 @@ class _FloatingCloudsState extends State<_FloatingClouds>
             return Stack(
               children: List.generate(_startOffsets.length, (i) {
                 final t =
-                    (_controller.value * _speeds[i] + _startOffsets[i]) %
-                        1.0;
+                    (_controller.value * _speeds[i] + _startOffsets[i]) % 1.0;
                 final left = t * (width + _sizes[i]) - _sizes[i];
 
                 return Positioned(
@@ -238,6 +237,152 @@ class _FloatingCloudsState extends State<_FloatingClouds>
               }),
             );
           },
+        );
+      },
+    );
+  }
+}
+
+// ==========================================
+// POLICE SIREN BAR
+// A slim strip of alternating red/blue light that sweeps back and
+// forth, used at the very top and bottom of the start screen to
+// give it a proper "police chase" cinematic frame.
+// ==========================================
+class _SirenBar extends StatelessWidget {
+  final double t; // 0..1 animation progress
+  final bool topBar;
+
+  const _SirenBar({required this.t, required this.topBar});
+
+  @override
+  Widget build(BuildContext context) {
+    // Two lobes of light chasing each other across the strip.
+    final wave = (sin(t * 2 * pi) + 1) / 2; // 0..1
+    return Container(
+      height: 5,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.red.withValues(alpha: 0.15 + 0.65 * wave),
+            Colors.blueAccent.withValues(alpha: 0.15 + 0.65 * (1 - wave)),
+            Colors.red.withValues(alpha: 0.15 + 0.65 * wave),
+            Colors.blueAccent.withValues(alpha: 0.15 + 0.65 * (1 - wave)),
+          ],
+          stops: const [0.0, 0.33, 0.66, 1.0],
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// SIREN GLOW OVERLAY
+// A very soft full-screen red/blue wash that alternates slowly in
+// the background, tying the whole start screen together without
+// being distracting - sits behind all other UI.
+// ==========================================
+class _SirenGlowOverlay extends StatelessWidget {
+  final double t; // 0..1
+
+  const _SirenGlowOverlay({required this.t});
+
+  @override
+  Widget build(BuildContext context) {
+    final wave = (sin(t * 2 * pi) + 1) / 2;
+    return IgnorePointer(
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(0, -0.3),
+            radius: 1.1,
+            colors: [
+              Color.lerp(
+                Colors.blueAccent.withValues(alpha: 0.10),
+                Colors.red.withValues(alpha: 0.10),
+                wave,
+              )!,
+              Colors.transparent,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// VIGNETTE
+// Subtle edge-darkening so the center of the screen (logo + title)
+// reads as the visual focus - a common cinematic/game-UI touch.
+// ==========================================
+class _Vignette extends StatelessWidget {
+  const _Vignette();
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment.center,
+            radius: 1.15,
+            colors: [Colors.transparent, Colors.black.withValues(alpha: 0.32)],
+            stops: const [0.6, 1.0],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// SPARKLE PARTICLES
+// Tiny twinkling dots drifting slowly upward in the background,
+// giving the start screen a bit of ambient life/depth beyond the
+// clouds - purely decorative.
+// ==========================================
+class _SparkleField extends StatelessWidget {
+  final double t; // 0..1 looping progress
+
+  const _SparkleField({required this.t});
+
+  static final List<Offset> _seeds = List.generate(18, (i) {
+    final rnd = Random(i * 97);
+    return Offset(rnd.nextDouble(), rnd.nextDouble());
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        return Stack(
+          children: List.generate(_seeds.length, (i) {
+            final seed = _seeds[i];
+            final speed = 0.4 + (i % 5) * 0.15;
+            final localT = (t * speed + seed.dx) % 1.0;
+            final dy = h * (1 - localT);
+            final dx = seed.dx * w + sin(localT * 4 * pi + i) * 10;
+            final twinkle = (sin(t * 2 * pi * (2 + i % 3) + i) + 1) / 2;
+
+            return Positioned(
+              left: dx,
+              top: dy,
+              child: Opacity(
+                opacity: 0.15 + twinkle * 0.35,
+                child: Container(
+                  width: 3,
+                  height: 3,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            );
+          }),
         );
       },
     );
@@ -326,6 +471,10 @@ class _StartScreenState extends State<StartScreen>
   // Shine sweep used on the title text and the loading bar
   late AnimationController _shimmerController;
 
+  // Police-style red/blue siren sweep for the top/bottom bars and
+  // the soft background glow wash.
+  late AnimationController _sirenController;
+
   double loadingProgress = 0.0;
   bool isLoaded = false;
 
@@ -337,7 +486,13 @@ class _StartScreenState extends State<StartScreen>
 
     // Preload all sounds now, in parallel with the loading bar below,
     // so there is zero delay the first time a sound is triggered.
-    SoundManager.preload();
+    // Background music starts as soon as it's ready, right here on
+    // the loading screen, instead of waiting for the game to open.
+    SoundManager.preload().then((_) {
+      if (mounted) {
+        SoundManager.playBackgroundMusic();
+      }
+    });
 
     _bounceController = AnimationController(
       vsync: this,
@@ -423,6 +578,11 @@ class _StartScreenState extends State<StartScreen>
       duration: const Duration(milliseconds: 1600),
     )..repeat();
 
+    _sirenController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
+
     // Fake loading bar - fills up over ~2.2 seconds, then reveals Play button.
     const totalDuration = Duration(milliseconds: 2200);
     const tickTime = Duration(milliseconds: 30);
@@ -452,6 +612,7 @@ class _StartScreenState extends State<StartScreen>
     _glowController.dispose();
     _ringRotateController.dispose();
     _shimmerController.dispose();
+    _sirenController.dispose();
     loadingTimer?.cancel();
     super.dispose();
   }
@@ -563,9 +724,7 @@ class _StartScreenState extends State<StartScreen>
                   value: loadingProgress,
                   minHeight: 14,
                   backgroundColor: Colors.black26,
-                  valueColor: const AlwaysStoppedAnimation<Color>(
-                    Colors.amber,
-                  ),
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
                 ),
                 // Shine sweep gliding across the bar for a polished,
                 // "still working" feel while it fills up.
@@ -659,9 +818,11 @@ class _StartScreenState extends State<StartScreen>
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  Color.lerp(Colors.green[800], Colors.green[600], t)!,
-                  Color.lerp(Colors.teal[700], Colors.green[700], t)!,
+                  Color.lerp(Colors.green[900], Colors.green[700], t)!,
+                  Color.lerp(Colors.teal[800], Colors.green[800], t)!,
+                  Color.lerp(Colors.blueGrey[900], Colors.teal[900], t)!,
                 ],
+                stops: const [0.0, 0.55, 1.0],
               ),
             ),
             child: child,
@@ -670,6 +831,47 @@ class _StartScreenState extends State<StartScreen>
         child: Stack(
           children: [
             const Positioned.fill(child: _FloatingClouds()),
+            AnimatedBuilder(
+              animation: _sirenController,
+              builder: (context, _) {
+                return Positioned.fill(
+                  child: _SparkleField(t: _sirenController.value),
+                );
+              },
+            ),
+            AnimatedBuilder(
+              animation: _sirenController,
+              builder: (context, _) {
+                return Positioned.fill(
+                  child: _SirenGlowOverlay(t: _sirenController.value),
+                );
+              },
+            ),
+            const Positioned.fill(child: _Vignette()),
+            // Top siren bar
+            AnimatedBuilder(
+              animation: _sirenController,
+              builder: (context, _) {
+                return Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: _SirenBar(t: _sirenController.value, topBar: true),
+                );
+              },
+            ),
+            // Bottom siren bar
+            AnimatedBuilder(
+              animation: _sirenController,
+              builder: (context, _) {
+                return Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _SirenBar(t: _sirenController.value, topBar: false),
+                );
+              },
+            ),
             SafeArea(
               child: Column(
                 children: [
@@ -715,8 +917,35 @@ class _StartScreenState extends State<StartScreen>
                         fontSize: 34,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 2,
-                        shadows: [
-                          Shadow(color: Colors.black45, blurRadius: 6),
+                        shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 6),
+
+                  // Small tagline under the title, fading/sliding in
+                  // together with the title above it.
+                  AnimatedBuilder(
+                    animation: _introController,
+                    builder: (context, child) {
+                      return Opacity(
+                        opacity: _titleFade.value,
+                        child: Transform.translate(
+                          offset: Offset(0, _titleSlide.value),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: Text(
+                      'DODGE  •  COLLECT  •  ESCAPE',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.75),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 3,
+                        shadows: const [
+                          Shadow(color: Colors.black45, blurRadius: 4),
                         ],
                       ),
                     ),
@@ -753,9 +982,7 @@ class _StartScreenState extends State<StartScreen>
                                     _buildGlowRing(0.5),
                                     Transform.rotate(
                                       angle:
-                                          _ringRotateController.value *
-                                          2 *
-                                          pi,
+                                          _ringRotateController.value * 2 * pi,
                                       child: CustomPaint(
                                         size: const Size(150, 150),
                                         painter: _RadarRingPainter(
@@ -803,15 +1030,13 @@ class _StartScreenState extends State<StartScreen>
                           return FadeTransition(
                             opacity: animation,
                             child: ScaleTransition(
-                              scale: Tween<double>(
-                                begin: 0.85,
-                                end: 1.0,
-                              ).animate(
-                                CurvedAnimation(
-                                  parent: animation,
-                                  curve: Curves.easeOutBack,
-                                ),
-                              ),
+                              scale: Tween<double>(begin: 0.85, end: 1.0)
+                                  .animate(
+                                    CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.easeOutBack,
+                                    ),
+                                  ),
                               child: child,
                             ),
                           );
@@ -884,8 +1109,7 @@ class GameScreen extends StatefulWidget {
   State<GameScreen> createState() => _GameScreenState();
 }
 
-class _GameScreenState extends State<GameScreen>
-    with TickerProviderStateMixin {
+class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   static const int laneCount = 3;
 
   int playerLane = 1;
@@ -943,29 +1167,34 @@ class _GameScreenState extends State<GameScreen>
   // These run on their own tickers so they animate smoothly even in
   // the instant the main game timer stops (e.g. right at game over).
   // ==========================================
-  late AnimationController _shakeController; // screen shake + red flash on arrest
-  late AnimationController _scoreBumpController; // score pop when coins are collected
+  late AnimationController
+  _shakeController; // screen shake + red flash on arrest
+  late AnimationController
+  _scoreBumpController; // score pop when coins are collected
   late Animation<double> _scoreBumpAnimation;
-  late AnimationController _gameOverController; // entrance for the game-over card
+  late AnimationController
+  _gameOverController; // entrance for the game-over card
   late AnimationController _gameOverPulseController; // subtle card glow/pulse
 
   @override
   void initState() {
     super.initState();
 
-    _shakeController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    )..addListener(() {
-        if (mounted) setState(() {});
-      });
+    _shakeController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 500),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
 
-    _scoreBumpController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 260),
-    )..addListener(() {
-        if (mounted) setState(() {});
-      });
+    _scoreBumpController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 260),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
 
     _scoreBumpAnimation = TweenSequence<double>([
       TweenSequenceItem(
@@ -984,12 +1213,13 @@ class _GameScreenState extends State<GameScreen>
       ),
     ]).animate(_scoreBumpController);
 
-    _gameOverController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    )..addListener(() {
-        if (mounted) setState(() {});
-      });
+    _gameOverController =
+        AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 700),
+        )..addListener(() {
+          if (mounted) setState(() {});
+        });
 
     _gameOverPulseController = AnimationController(
       vsync: this,
@@ -1501,9 +1731,7 @@ class _GameScreenState extends State<GameScreen>
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.055),
         borderRadius: BorderRadius.circular(15),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.08),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
         children: [
@@ -1888,7 +2116,8 @@ class _GameScreenState extends State<GameScreen>
                               _gameOverController.value,
                             ),
                             child: Transform.scale(
-                              scale: 0.82 +
+                              scale:
+                                  0.82 +
                                   0.18 *
                                       Curves.easeOutBack.transform(
                                         _gameOverController.value,
@@ -1981,9 +2210,7 @@ class _GameScreenState extends State<GameScreen>
                                     const SizedBox(height: 14),
 
                                     Text(
-                                      isArrested
-                                          ? 'GAME OVER'
-                                          : 'RUN ENDED',
+                                      isArrested ? 'GAME OVER' : 'RUN ENDED',
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 30,
@@ -2047,9 +2274,7 @@ class _GameScreenState extends State<GameScreen>
                                         color: Colors.white.withValues(
                                           alpha: 0.055,
                                         ),
-                                        borderRadius: BorderRadius.circular(
-                                          14,
-                                        ),
+                                        borderRadius: BorderRadius.circular(14),
                                         border: Border.all(
                                           color: Colors.white.withValues(
                                             alpha: 0.08,
@@ -2155,8 +2380,9 @@ class _GameScreenState extends State<GameScreen>
                                             alpha: 0.35,
                                           ),
                                           shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(17),
+                                            borderRadius: BorderRadius.circular(
+                                              17,
+                                            ),
                                           ),
                                         ),
                                       ),
