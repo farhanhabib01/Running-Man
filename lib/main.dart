@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 
 // ==========================================
@@ -189,9 +190,6 @@ class MyApp extends StatelessWidget {
 
 // ==========================================
 // DECORATIVE FLOATING CLOUDS
-// Purely visual parallax layer used on the start screen to make the
-// background feel alive instead of a flat color. Runs on its own
-// ticker so it never interferes with game logic.
 // ==========================================
 class _FloatingClouds extends StatefulWidget {
   const _FloatingClouds();
@@ -264,9 +262,6 @@ class _FloatingCloudsState extends State<_FloatingClouds>
 
 // ==========================================
 // POLICE SIREN BAR
-// A slim strip of alternating red/blue light that sweeps back and
-// forth, used at the very top and bottom of the start screen to
-// give it a proper "police chase" cinematic frame.
 // ==========================================
 class _SirenBar extends StatelessWidget {
   final double t; // 0..1 animation progress
@@ -297,9 +292,6 @@ class _SirenBar extends StatelessWidget {
 
 // ==========================================
 // SIREN GLOW OVERLAY
-// A very soft full-screen red/blue wash that alternates slowly in
-// the background, tying the whole start screen together without
-// being distracting - sits behind all other UI.
 // ==========================================
 class _SirenGlowOverlay extends StatelessWidget {
   final double t; // 0..1
@@ -332,8 +324,6 @@ class _SirenGlowOverlay extends StatelessWidget {
 
 // ==========================================
 // VIGNETTE
-// Subtle edge-darkening so the center of the screen (logo + title)
-// reads as the visual focus - a common cinematic/game-UI touch.
 // ==========================================
 class _Vignette extends StatelessWidget {
   const _Vignette();
@@ -357,9 +347,6 @@ class _Vignette extends StatelessWidget {
 
 // ==========================================
 // SPARKLE PARTICLES
-// Tiny twinkling dots drifting slowly upward in the background,
-// giving the start screen a bit of ambient life/depth beyond the
-// clouds - purely decorative.
 // ==========================================
 class _SparkleField extends StatelessWidget {
   final double t; // 0..1 looping progress
@@ -410,10 +397,6 @@ class _SparkleField extends StatelessWidget {
 
 // ==========================================
 // CITY SKYLINE SILHOUETTE
-// A static row of building silhouettes with a handful of slowly
-// blinking window lights, anchored to the bottom of the start
-// screen. Adds depth and a "city at night, on the run" cinematic
-// backdrop behind the clouds/logo without competing with them.
 // ==========================================
 class _SkylineSilhouette extends StatelessWidget {
   final double t; // 0..1 looping progress, drives window blink
@@ -483,9 +466,6 @@ class _SkylinePainter extends CustomPainter {
 
 // ==========================================
 // RADAR RING PAINTER
-// A dashed circular ring that spins slowly behind the start-screen
-// logo, giving it a "badge / radar" feel that matches the police
-// chase theme.
 // ==========================================
 class _RadarRingPainter extends CustomPainter {
   final Color color;
@@ -533,11 +513,9 @@ class StartScreen extends StatefulWidget {
 
 class _StartScreenState extends State<StartScreen>
     with TickerProviderStateMixin {
-  // Logo idle bounce
   late AnimationController _bounceController;
   late Animation<double> _bounceAnimation;
 
-  // Entrance animation for title + logo when the screen first opens
   late AnimationController _introController;
   late Animation<double> _titleFade;
   late Animation<double> _titleSlide;
@@ -547,24 +525,13 @@ class _StartScreenState extends State<StartScreen>
   late Animation<double> _bottomFade;
   late Animation<double> _bottomSlide;
 
-  // Gentle pulsing on the PLAY button so it draws the eye once ready
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
-  // Slow ambient background gradient shift
   late AnimationController _bgController;
-
-  // Radar-style ripple rings pulsing outward behind the logo
   late AnimationController _glowController;
-
-  // Slow continuous rotation for the dashed radar ring
   late AnimationController _ringRotateController;
-
-  // Shine sweep used on the title text and the loading bar
   late AnimationController _shimmerController;
-
-  // Police-style red/blue siren sweep for the top/bottom bars and
-  // the soft background glow wash.
   late AnimationController _sirenController;
 
   double loadingProgress = 0.0;
@@ -576,10 +543,6 @@ class _StartScreenState extends State<StartScreen>
   void initState() {
     super.initState();
 
-    // Preload all sounds now, in parallel with the loading bar below,
-    // so there is zero delay the first time a sound is triggered.
-    // Background music starts as soon as it's ready, right here on
-    // the loading screen, instead of waiting for the game to open.
     SoundManager.preload().then((_) {
       if (mounted) {
         SoundManager.playBackgroundMusic();
@@ -595,8 +558,6 @@ class _StartScreenState extends State<StartScreen>
       CurvedAnimation(parent: _bounceController, curve: Curves.easeInOut),
     );
 
-    // Staggered opening sequence: title first, then the logo spins and
-    // pops in, then the bottom controls slide up into place.
     _introController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
@@ -675,7 +636,6 @@ class _StartScreenState extends State<StartScreen>
       duration: const Duration(milliseconds: 1800),
     )..repeat();
 
-    // Fake loading bar - fills up over ~2.2 seconds, then reveals Play button.
     const totalDuration = Duration(milliseconds: 2200);
     const tickTime = Duration(milliseconds: 30);
     final totalTicks = totalDuration.inMilliseconds / tickTime.inMilliseconds;
@@ -732,8 +692,6 @@ class _StartScreenState extends State<StartScreen>
     );
   }
 
-  // One expanding, fading ripple ring - two of these offset in phase
-  // create a continuous "radar ping" effect behind the logo.
   Widget _buildGlowRing(double phase) {
     final t = (_glowController.value + phase) % 1.0;
     final scale = 0.55 + t * 0.9;
@@ -755,8 +713,6 @@ class _StartScreenState extends State<StartScreen>
     );
   }
 
-  // The app icon/logo itself, glossy-badge styled, with a graceful
-  // fallback if the asset is missing.
   Widget _buildLogoImage() {
     return ClipOval(
       child: Container(
@@ -818,8 +774,6 @@ class _StartScreenState extends State<StartScreen>
                   backgroundColor: Colors.black26,
                   valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
                 ),
-                // Shine sweep gliding across the bar for a polished,
-                // "still working" feel while it fills up.
                 AnimatedBuilder(
                   animation: _shimmerController,
                   builder: (context, child) {
@@ -951,7 +905,6 @@ class _StartScreenState extends State<StartScreen>
               },
             ),
             const Positioned.fill(child: _Vignette()),
-            // Top siren bar
             AnimatedBuilder(
               animation: _sirenController,
               builder: (context, _) {
@@ -963,7 +916,6 @@ class _StartScreenState extends State<StartScreen>
                 );
               },
             ),
-            // Bottom siren bar
             AnimatedBuilder(
               animation: _sirenController,
               builder: (context, _) {
@@ -979,10 +931,6 @@ class _StartScreenState extends State<StartScreen>
               child: Column(
                 children: [
                   const SizedBox(height: 40),
-
-                  // Title with an entrance slide/fade AND a looping
-                  // metallic shine sweep for a more "professional"
-                  // game-logo feel.
                   AnimatedBuilder(
                     animation: Listenable.merge([
                       _introController,
@@ -1027,8 +975,6 @@ class _StartScreenState extends State<StartScreen>
 
                   const SizedBox(height: 6),
 
-                  // Small tagline under the title, fading/sliding in
-                  // together with the title above it.
                   AnimatedBuilder(
                     animation: _introController,
                     builder: (context, child) {
@@ -1056,9 +1002,6 @@ class _StartScreenState extends State<StartScreen>
 
                   const Spacer(),
 
-                  // Logo badge: idle bounce + radar ping rings + a
-                  // slowly spinning dashed ring + a spin-and-pop
-                  // entrance the first time the screen appears.
                   AnimatedBuilder(
                     animation: Listenable.merge([
                       _bounceAnimation,
@@ -1108,9 +1051,6 @@ class _StartScreenState extends State<StartScreen>
 
                   const Spacer(),
 
-                  // Loading bar OR Play button, with a smooth cross-fade
-                  // + scale transition between the two states, plus a
-                  // slide-up entrance the first time it appears.
                   AnimatedBuilder(
                     animation: _introController,
                     builder: (context, child) {
@@ -1167,7 +1107,7 @@ class FallingItem {
   double y;
   ItemType type;
   String? carImage;
-  bool dodged = false; // true once the player has jumped over this hurdle
+  bool dodged = false;
 
   FallingItem({
     required this.lane,
@@ -1177,11 +1117,10 @@ class FallingItem {
   });
 }
 
-// A short-lived floating "+10" style popup shown when a coin is collected.
 class FloatingPopup {
   double x;
   double y;
-  int life; // ticks remaining
+  int life;
   static const int maxLife = 30;
   final String text;
 
@@ -1192,11 +1131,8 @@ class FloatingPopup {
     this.life = maxLife,
   });
 
-  // Pops in quickly with a small overshoot, then holds steady while
-  // it fades and floats upward. Purely cosmetic, derived from `life`
-  // so it needs no extra AnimationController.
   double get scale {
-    final t = 1 - (life / maxLife); // 0 -> 1 over its lifetime
+    final t = 1 - (life / maxLife);
     if (t < 0.2) {
       final p = t / 0.2;
       return 0.4 + 0.8 * Curves.easeOutBack.transform(p);
@@ -1217,13 +1153,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   int playerLane = 1;
   double playerY = 0.7;
-
-  // Smoothed visual-only lane position: the player's *logical* lane
-  // (playerLane, used for all collision/gameplay checks) still
-  // changes instantly on swipe, but the character glides toward it
-  // on screen instead of teleporting - this is what makes lane
-  // changes read as a real running motion instead of the character
-  // just "popping" into place.
   double playerLaneAnim = 1.0;
 
   int policeLane = 1;
@@ -1231,7 +1160,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   double policeLaneAnim = 1.0;
   int policeLaneDelayCounter = 0;
 
-  // Scroll offset for the roadside buildings/trees parallax layer.
   double sceneryOffset = 0;
 
   List<FallingItem> items = [];
@@ -1243,7 +1171,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   int score = 0;
   int highestScore = 0;
 
-  // Coin counter + level progression.
   int coins = 0;
   int highestCoins = 0;
   int level = 1;
@@ -1253,14 +1180,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   bool isGameOver = false;
   bool isArrested = false;
 
+  // Game Pause Implementation
+  bool isPaused = false;
+  int resumeCountdown = 0;
+  Timer? countdownTimer;
+
   Timer? gameTimer;
 
   final Random random = Random();
 
   int tickCounter = 0;
-
   double roadOffset = 0;
-
   int nextSpawnTick = 35;
 
   double dragStartX = 0;
@@ -1271,29 +1201,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   // ==========================================
   bool isJumping = false;
   int jumpTick = 0;
-  static const int jumpDuration = 20; // total ticks for one jump
-  static const double jumpHeight = 90; // pixels
+  static const int jumpDuration = 20;
+  static const double jumpHeight = 90;
 
   bool policeIsJumping = false;
   int policeJumpTick = 0;
-  int pendingPoliceJumpDelay = 0; // ticks until police starts jumping too
+  int pendingPoliceJumpDelay = 0;
 
-  // ==========================================
-  // POLISH ANIMATIONS
-  // These run on their own tickers so they animate smoothly even in
-  // the instant the main game timer stops (e.g. right at game over).
-  // ==========================================
-  late AnimationController
-  _shakeController; // screen shake + red flash on arrest
-  late AnimationController
-  _scoreBumpController; // score pop when coins are collected
+  late AnimationController _shakeController;
+  late AnimationController _scoreBumpController;
   late Animation<double> _scoreBumpAnimation;
-  late AnimationController
-  _gameOverController; // entrance for the game-over card
-  late AnimationController _gameOverPulseController; // subtle card glow/pulse
-
-  // Level-up banner: pops in with the new level number whenever the
-  // player crosses into a new level, then fades back out on its own.
+  late AnimationController _gameOverController;
+  late AnimationController _gameOverPulseController;
   late AnimationController _levelUpController;
 
   @override
@@ -1359,6 +1278,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void startGame() {
     gameTimer?.cancel();
+    countdownTimer?.cancel();
 
     items.clear();
     popups.clear();
@@ -1381,6 +1301,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     isGameOver = false;
     isArrested = false;
+    isPaused = false;
+    resumeCountdown = 0;
 
     tickCounter = 0;
     roadOffset = 0;
@@ -1406,7 +1328,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void updateGame() {
-    if (isGameOver) return;
+    if (isGameOver || isPaused) return;
 
     setState(() {
       tickCounter++;
@@ -1422,12 +1344,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         sceneryOffset -= _SceneryPainter.patternHeight;
       }
 
-      // Ease the on-screen lane position toward the logical lane -
-      // this is what turns an instant lane swap into a smooth glide.
       playerLaneAnim += (playerLane - playerLaneAnim) * 0.28;
       policeLaneAnim += (policeLane - policeLaneAnim) * 0.22;
 
-      // Police chase logic (lane following)
       policeLaneDelayCounter++;
 
       if (policeLaneDelayCounter > 15) {
@@ -1441,12 +1360,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       }
 
       double targetPoliceY = playerY + 0.13;
-
       policeY += (targetPoliceY - policeY) * 0.1;
 
-      // ==========================================
-      // JUMP PROGRESSION - Player
-      // ==========================================
       if (isJumping) {
         jumpTick++;
         if (jumpTick >= jumpDuration) {
@@ -1455,10 +1370,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
       }
 
-      // ==========================================
-      // JUMP PROGRESSION - Police (follows player's jump
-      // after a short delay, mimicking the chase)
-      // ==========================================
       if (pendingPoliceJumpDelay > 0) {
         pendingPoliceJumpDelay--;
         if (pendingPoliceJumpDelay == 0 && !policeIsJumping) {
@@ -1475,7 +1386,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
       }
 
-      // Arrest check (only if neither player nor police mid-air dodge protects them)
       if (policeLane == playerLane &&
           policeY - playerY < 0.09 &&
           !isArrested &&
@@ -1516,9 +1426,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           usedLanes.add(lane);
 
           double chance = random.nextDouble();
-
           double carChance = (0.25 + (speed - 0.006) * 6).clamp(0.25, 0.45);
-
           double coinChance = 0.45 + (speedProgress * 0.25);
 
           if (coinChance > 0.70) {
@@ -1559,7 +1467,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         }
 
         int randomVariance = random.nextInt(10);
-
         nextSpawnTick = tickCounter + baseGap + randomVariance;
       }
 
@@ -1567,15 +1474,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         item.y += speed;
       }
 
-      // ==========================================
-      // COLLISION - jumping lets you pass over
-      // barricades, bushes, and cars while mid-air.
-      // Coins are still collected even while jumping.
-      // ==========================================
       for (var item in List<FallingItem>.from(items)) {
         if (item.dodged) {
-          // Already jumped over this one earlier - permanently safe,
-          // even after the jump animation has ended.
           continue;
         }
 
@@ -1592,8 +1492,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             SoundManager.playCoin();
             _scoreBumpController.forward(from: 0);
           } else if (isJumping) {
-            // Successfully jumped over the hurdle - mark it as dodged
-            // so it can never cause an arrest again, even after landing.
             item.dodged = true;
           } else {
             arrestPlayer();
@@ -1610,10 +1508,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       }
       popups.removeWhere((popup) => popup.life <= 0);
 
-      // Kick up a small dust puff behind the player's feet every
-      // few ticks while running on the ground - skipped mid-air so
-      // it doesn't look like the character is dragging dust through
-      // the sky during a jump.
       if (!isJumping && tickCounter % 5 == 0) {
         dustParticles.add(
           _DustParticle(
@@ -1640,7 +1534,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         score += 1;
       }
 
-      // Every 10 collected coins = next level.
       final newLevel = (coins ~/ 10) + 1;
       if (newLevel != level) {
         level = newLevel;
@@ -1661,20 +1554,16 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void arrestPlayer() {
     isArrested = true;
-
     policeLane = playerLane;
     policeY = playerY + 0.02;
 
     _shakeController.forward(from: 0);
-
     gameOver();
   }
 
   void gameOver() {
     isGameOver = true;
 
-    // Capture the record BEFORE updating it, so the banner is shown
-    // only when this run actually beats the previous best.
     isNewHighScore = score > highestScore;
 
     if (score > highestScore) {
@@ -1688,21 +1577,43 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
 
     gameTimer?.cancel();
-
-    // Background music keeps playing under the game-over screen -
-    // only the gameover sting plays on top of it, it doesn't replace it.
     SoundManager.playGameOver();
 
     _gameOverController.forward(from: 0);
   }
 
   // ==========================================
-  // TOUCH / SWIPE CONTROLS
+  // PAUSE CONTROLS
   // ==========================================
+  void pauseGame() {
+    if (isGameOver || isPaused || resumeCountdown > 0) return;
+    setState(() {
+      isPaused = true;
+    });
+  }
+
+  void startResumeCountdown() {
+    setState(() {
+      resumeCountdown = 3;
+    });
+    countdownTimer?.cancel();
+    countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      setState(() {
+        resumeCountdown--;
+        if (resumeCountdown <= 0) {
+          isPaused = false;
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  void quitApp() {
+    SystemNavigator.pop();
+  }
 
   void handleSwipe(double difference) {
     const double swipeThreshold = 25;
-
     if (difference.abs() < swipeThreshold) {
       return;
     }
@@ -1716,22 +1627,17 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   void handleVerticalSwipe(double difference) {
     const double swipeThreshold = 25;
-
-    // Negative difference means the finger moved UP the screen.
     if (difference < -swipeThreshold) {
       triggerJump();
     }
   }
 
   void triggerJump() {
-    if (isGameOver || isJumping) return;
+    if (isGameOver || isJumping || isPaused || resumeCountdown > 0) return;
 
     setState(() {
       isJumping = true;
       jumpTick = 0;
-
-      // Police will mimic the jump a short moment later,
-      // like it's reacting to the player.
       pendingPoliceJumpDelay = 6;
     });
 
@@ -1739,7 +1645,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void moveLeft() {
-    if (!isGameOver && playerLane > 0) {
+    if (!isGameOver && !isPaused && resumeCountdown == 0 && playerLane > 0) {
       setState(() {
         playerLane--;
       });
@@ -1747,7 +1653,10 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void moveRight() {
-    if (!isGameOver && playerLane < laneCount - 1) {
+    if (!isGameOver &&
+        !isPaused &&
+        resumeCountdown == 0 &&
+        playerLane < laneCount - 1) {
       setState(() {
         playerLane++;
       });
@@ -1763,6 +1672,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   @override
   void dispose() {
     gameTimer?.cancel();
+    countdownTimer?.cancel();
     _shakeController.dispose();
     _scoreBumpController.dispose();
     _gameOverController.dispose();
@@ -1822,10 +1732,38 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Wraps buildItemWidget() with a grounding shadow underneath and,
-  // for cars, a fading motion-blur trail behind them - small touches
-  // that make oncoming traffic read as fast and "real" rather than
-  // flat sprites falling down the screen.
+  Widget _menuButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, size: 23),
+        label: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.black,
+          elevation: 8,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(17),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildItemVisual(FallingItem item) {
     switch (item.type) {
       case ItemType.car:
@@ -1833,8 +1771,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           alignment: Alignment.topCenter,
           clipBehavior: Clip.none,
           children: [
-            // Speed-blur streaks trailing above the car (the
-            // direction it came from), strength scales with speed.
             if (speed > 0.010)
               Positioned(
                 top: -34 * ((speed - 0.006) / 0.018).clamp(0.0, 1.0) - 6,
@@ -1877,8 +1813,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
       case ItemType.barricade:
       case ItemType.bush:
-        // A gentle side-to-side sway, phase offset per item, so a
-        // row of hurdles doesn't feel like a static wall.
         final sway = sin((tickCounter + item.hashCode) * 0.06) * 2.5;
         return Stack(
           alignment: Alignment.topCenter,
@@ -1910,9 +1844,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   Widget buildItemWidget(FallingItem item) {
     switch (item.type) {
       case ItemType.coin:
-        // Gentle bob + a soft glow ring behind the coin, phase offset
-        // per-coin (via its hashCode) so a row of coins doesn't bob
-        // in perfect unison - reads as more alive/professional.
         final wobble = sin((tickCounter + item.hashCode) * 0.15) * 4;
         final glowPulse = (sin((tickCounter + item.hashCode) * 0.08) + 1) / 2;
         return Transform.translate(
@@ -1966,16 +1897,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     }
   }
 
-  // Calculates how many pixels to lift a jumping character,
-  // using a smooth sine arc: 0 -> up -> 0 across jumpDuration ticks.
   double _jumpArc(int tick) {
     double progress = tick / jumpDuration;
     return sin(pi * progress) * jumpHeight;
   }
 
-  // Squash-and-stretch factors for the player while jumping: a quick
-  // squash on takeoff/landing and a gentle stretch mid-air, anchored
-  // at the character's feet so it reads as a real jump, not a float.
   Offset _squashStretch(int tick, bool jumping) {
     if (!jumping) return const Offset(1.0, 1.0);
 
@@ -2040,10 +1966,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
 
-    // The road no longer spans the full screen width - narrowing it
-    // leaves real grass strips on both sides for the scrolling
-    // scenery (buildings/trees) to actually be visible in, instead
-    // of being fully hidden behind an edge-to-edge road.
     final roadWidth = size.width * 0.82;
     final laneWidth = roadWidth / laneCount;
     final roadLeft = (size.width - roadWidth) / 2;
@@ -2055,48 +1977,34 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     final Offset playerSquash = _squashStretch(jumpTick, isJumping);
 
-    // Decaying oscillation for the screen shake, driven purely by
-    // _shakeController.value so it works whether or not the main
-    // game timer is still running.
     final double shakeT = _shakeController.value;
     final double shakeDx = sin(shakeT * pi * 10) * (1 - shakeT) * 14;
     final double flashOpacity = shakeT > 0 ? (1 - shakeT) * 0.28 : 0.0;
 
     return Scaffold(
       backgroundColor: const Color(0xFF2E7D32),
-
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
-
         onHorizontalDragStart: (details) {
           dragStartX = details.localPosition.dx;
         },
-
         onHorizontalDragEnd: (details) {
           final endX = details.localPosition.dx;
-
           final difference = endX - dragStartX;
-
           handleSwipe(difference);
         },
-
         onVerticalDragStart: (details) {
           dragStartY = details.localPosition.dy;
         },
-
         onVerticalDragEnd: (details) {
           final endY = details.localPosition.dy;
-
           final difference = endY - dragStartY;
-
           handleVerticalSwipe(difference);
         },
-
         child: Transform.translate(
           offset: Offset(shakeDx, 0),
           child: Stack(
             children: [
-              // Grass background with a subtle vertical gradient for depth
               Positioned.fill(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
@@ -2109,9 +2017,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Roadside scenery (buildings/trees) scrolling in the
-              // grass strips on either side of the road - adds
-              // parallax depth and a stronger sense of forward speed.
               Positioned(
                 left: 0,
                 top: 0,
@@ -2134,7 +2039,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Road surface with a soft gradient + side curbs for depth
               Positioned(
                 left: roadLeft,
                 top: 0,
@@ -2157,7 +2061,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Left/right road curbs (striped)
               Positioned(
                 left: roadLeft,
                 top: 0,
@@ -2175,7 +2078,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
               ...List.generate(laneCount - 1, (index) {
                 double dividerLeft = roadLeft + (index + 1) * laneWidth;
-
                 return Positioned(
                   left: dividerLeft - 2,
                   top: 0,
@@ -2195,9 +2097,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 );
               }),
 
-              // Dust puffs kicked up behind the player's feet while
-              // running - small fading grey circles that drift and
-              // shrink, giving the ground contact a bit of life.
               ...dustParticles.map((dust) {
                 final opacity =
                     (dust.life / _DustParticle.maxLife).clamp(0.0, 1.0) * 0.35;
@@ -2224,8 +2123,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 );
               }),
 
-              // Floating "+10" popups when coins are collected - pop in
-              // with a small overshoot, then float up and fade.
               ...popups.map((popup) {
                 final opacity = (popup.life / FloatingPopup.maxLife).clamp(
                   0.0,
@@ -2254,9 +2151,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 );
               }),
 
-              // Ground shadows for player and police - grounds them
-              // visually and squashes/fades while airborne, a classic
-              // runner-game polish touch.
               Positioned(
                 left:
                     roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 22,
@@ -2304,7 +2198,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Police - lifts up when policeIsJumping is active
               Positioned(
                 left:
                     roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 27,
@@ -2316,8 +2209,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Flashing red/blue siren light above the police car -
-              // sells the "pursuit" theme at a glance.
               Positioned(
                 left:
                     roadLeft + policeLaneAnim * laneWidth + laneWidth / 2 - 10,
@@ -2347,11 +2238,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Player - lifts up when isJumping is active, with a
-              // squash-and-stretch anchored at the feet, a small
-              // continuous running bob while grounded, and a lean
-              // that tilts into whichever direction it's currently
-              // gliding toward its target lane.
               Positioned(
                 left:
                     roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 30,
@@ -2380,8 +2266,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Speed-lines overlay - fades in once the chase has
-              // ramped up, reinforcing how fast things have gotten.
               Positioned.fill(
                 child: IgnorePointer(
                   child: CustomPaint(
@@ -2394,7 +2278,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Red flash + shake feedback right at the moment of arrest
               if (flashOpacity > 0)
                 Positioned.fill(
                   child: IgnorePointer(
@@ -2414,7 +2297,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Score / best
                     Expanded(
                       child: _hudCard(
                         child: Column(
@@ -2467,7 +2349,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     ),
                     const SizedBox(width: 8),
 
-                    // Level
                     _hudCard(
                       width: 72,
                       child: Column(
@@ -2490,7 +2371,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                     ),
                     const SizedBox(width: 8),
 
-                    // Coins
                     _hudCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -2535,12 +2415,26 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         ],
                       ),
                     ),
+
+                    const SizedBox(width: 8),
+                    // Pause Button
+                    GestureDetector(
+                      onTap: pauseGame,
+                      child: _hudCard(
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 4),
+                          child: Icon(
+                            Icons.pause_rounded,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
 
-              // Level-up banner - pops in briefly whenever the player
-              // reaches a new level, then fades away on its own.
               if (_levelUpController.value > 0)
                 Positioned(
                   top: 118,
@@ -2624,6 +2518,93 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
+              // =========================
+              // PAUSE MENU OVERLAYS
+              // =========================
+              if (resumeCountdown > 0)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    child: Center(
+                      child: Text(
+                        '$resumeCountdown',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 120,
+                          fontWeight: FontWeight.w900,
+                          shadows: [
+                            Shadow(color: Colors.black54, blurRadius: 10),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              if (isPaused && resumeCountdown == 0)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.8),
+                    child: Center(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Color(0xFF17202A), Color(0xFF0B1118)],
+                          ),
+                          borderRadius: BorderRadius.circular(28),
+                          border: Border.all(color: Colors.white24, width: 1.5),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black54,
+                              blurRadius: 24,
+                              offset: Offset(0, 12),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'PAUSED',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 30,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                            const SizedBox(height: 30),
+                            _menuButton(
+                              icon: Icons.play_arrow_rounded,
+                              label: 'RESUME',
+                              color: Colors.greenAccent,
+                              onTap: startResumeCountdown,
+                            ),
+                            const SizedBox(height: 12),
+                            _menuButton(
+                              icon: Icons.replay_rounded,
+                              label: 'RESTART',
+                              color: Colors.amber,
+                              onTap: restartGame,
+                            ),
+                            const SizedBox(height: 12),
+                            _menuButton(
+                              icon: Icons.exit_to_app_rounded,
+                              label: 'QUIT',
+                              color: Colors.redAccent,
+                              onTap: quitApp,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
               if (isGameOver)
                 Positioned.fill(
                   child: AnimatedBuilder(
@@ -2697,7 +2678,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    // Animated arrest badge
                                     Transform.scale(
                                       scale: 0.96 + (t * 0.08),
                                       child: Container(
@@ -2760,7 +2740,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                     ),
                                     const SizedBox(height: 20),
 
-                                    // Result stats
                                     Row(
                                       children: [
                                         Expanded(
@@ -2933,14 +2912,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 }
 
-// ==========================================
-// ROADSIDE SCENERY
-// Scrolling building/tree silhouettes painted in the grass strips
-// on either side of the road. Purely decorative, driven by a
-// scroll offset that advances with game speed - gives the whole
-// scene a sense of depth and forward motion instead of a flat
-// green background.
-// ==========================================
 class _SceneryPainter extends CustomPainter {
   final double offset;
   final bool isLeft;
@@ -3011,15 +2982,9 @@ class _SceneryPainter extends CustomPainter {
   }
 }
 
-// ==========================================
-// SPEED LINES
-// Faint streaks racing down from the edges of the screen once the
-// game has ramped up past moderate speed - a classic "going fast"
-// cue that kicks in gradually rather than being always-on.
-// ==========================================
 class _SpeedLinesPainter extends CustomPainter {
-  final double intensity; // 0..1
-  final double phase; // 0..1 looping
+  final double intensity;
+  final double phase;
 
   _SpeedLinesPainter({required this.intensity, required this.phase});
 
@@ -3055,9 +3020,6 @@ class _SpeedLinesPainter extends CustomPainter {
   }
 }
 
-// A short-lived dust puff kicked up behind the player's feet while
-// running (not while airborne) - a small, classic runner-game touch
-// that sells the sense of speed on the ground.
 class _DustParticle {
   double laneAnim;
   double y;
