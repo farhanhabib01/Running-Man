@@ -9,14 +9,9 @@ import 'package:audioplayers/audioplayers.dart';
 // first-play decode delay. Uses seek(0) + resume() to replay
 // instead of play(), which avoids reloading the asset each time.
 //
-// Coins use a small rotating pool of players instead of one
-// shared player - this fixes the bug where only the FIRST coin
-// pickup made a sound. Calling play(AssetSource(...)) repeatedly
-// on the same AudioPlayer instance is unreliable in audioplayers;
-// after the first call the player's internal state can get stuck
-// and ignore further play requests. Rotating across several
-// preloaded players avoids that entirely, and also lets rapid
-// back-to-back coin pickups overlap properly.
+// Every coin collision uses a fresh low-latency player. This prevents
+// stale player state from blocking sounds during repeated pickups,
+// game over/restart, or after returning to the app.
 //
 // FIX (background music not playing):
 // bg uses the default (MediaPlayer-backed) player mode, not
@@ -117,13 +112,26 @@ class SoundManager {
   // clean state first and then starts fresh, so it works every
   // single time regardless of what happened before - this is the
   // reliable pattern for one-shot sound effects.
-  static Future<void> playCoin() async {
+  // Every pickup gets its own temporary player. This avoids stale shared
+  // player state, so repeated coins, game over/restart, and reopening the
+  // app do not prevent the next successful coin hit from playing its sound.
+  static void playCoin() {
+    _playCoinFresh();
+  }
+
+  static Future<void> _playCoinFresh() async {
+    final player = AudioPlayer();
+
     try {
-      final player = coinPool[_coinIndex];
-      _coinIndex = (_coinIndex + 1) % coinPool.length;
-      await player.stop();
+      await player.setPlayerMode(PlayerMode.lowLatency);
+      await player.setReleaseMode(ReleaseMode.release);
+      player.onPlayerComplete.listen((_) {
+        player.dispose();
+      });
       await player.play(AssetSource('sounds/coin.mp3'));
-    } catch (_) {}
+    } catch (_) {
+      await player.dispose();
+    }
   }
 
   static Future<void> playJump() async {
