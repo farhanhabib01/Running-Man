@@ -104,7 +104,7 @@ class SoundManager {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AudioPlayer.global.setAudioContext(
-    const AudioContext(
+    AudioContext(
       android: AudioContextAndroid(
         isSpeakerphoneOn: false,
         stayAwake: false,
