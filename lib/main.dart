@@ -49,7 +49,7 @@ class SoundManager {
     }
   }
 
-  static Future<void> playBackgroundMusic() async { try { await bg.stop(); await bg.play(AssetSource('sounds/background.mp3')); _bgStarted = true; } catch (_) {} }
+  static Future<void> playBackgroundMusic() async { try { await bg.setReleaseMode(ReleaseMode.loop); await bg.play(AssetSource('sounds/background.mp3')); _bgStarted = true; } catch (_) {} } catch (_) {} }
 
   static Future<void> stopBackgroundMusic() async {
     try {
@@ -3274,4 +3274,5 @@ class DashedLinePainter extends CustomPainter {
     return oldDelegate.offset != offset;
   }
 }
+
 
