@@ -49,7 +49,13 @@ class SoundManager {
     }
   }
 
-  static Future<void> playBackgroundMusic() async { try { await bg.setReleaseMode(ReleaseMode.loop); await bg.play(AssetSource('sounds/background.mp3')); _bgStarted = true; } catch (_) {} } catch (_) {} }
+  static Future<void> playBackgroundMusic() async {
+    try {
+      await bg.setReleaseMode(ReleaseMode.loop);
+      await bg.play(AssetSource('sounds/background.mp3'));
+      _bgStarted = true;
+    } catch (_) {}
+  }
 
   static Future<void> stopBackgroundMusic() async {
     try {
@@ -1205,6 +1211,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     setState(() {
       isIntroPhase = false;
     });
+    SoundManager.playBackgroundMusic();
   }
 
   void updateGame() {
@@ -3274,5 +3281,3 @@ class DashedLinePainter extends CustomPainter {
     return oldDelegate.offset != offset;
   }
 }
-
-
