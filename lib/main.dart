@@ -4,9 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 
-// ==========================================
-// SOUND MANAGER
-// ==========================================
 class SoundManager {
   static final AudioPlayer bg = AudioPlayer();
   static final List<AudioPlayer> coinPool = List.generate(
@@ -107,7 +104,7 @@ class SoundManager {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AudioPlayer.global.setAudioContext(
-    AudioContext(
+    const AudioContext(
       android: AudioContextAndroid(
         isSpeakerphoneOn: false,
         stayAwake: false,
@@ -129,16 +126,13 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const MaterialApp(
-      title: 'Runner Chase Elite',
+      title: 'Runner Chase Elite Pro',
       debugShowCheckedModeBanner: false,
       home: StartScreen(),
     );
   }
 }
 
-// ==========================================
-// DECORATIVE FLOATING CLOUDS
-// ==========================================
 class _FloatingClouds extends StatefulWidget {
   const _FloatingClouds();
   @override
@@ -698,7 +692,7 @@ class _StartScreenState extends State<StartScreen>
         ),
         const SizedBox(height: 10),
         Text(
-          'Loading... ${(loadingProgress * 100).toInt()}%',
+          'Loading Elite Experience... ${(loadingProgress * 100).toInt()}%',
           style: const TextStyle(
             color: Colors.white,
             fontSize: 14,
@@ -840,10 +834,10 @@ class _StartScreenState extends State<StartScreen>
                       );
                     },
                     child: const Text(
-                      'RUNNER CHASE',
+                      'RUNNER CHASE ELITE',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 34,
+                        fontSize: 32,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 2,
                         shadows: [Shadow(color: Colors.black45, blurRadius: 6)],
@@ -1024,6 +1018,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
   bool isIntroPhase = true;
   late AnimationController _tapPulseController;
+  late AnimationController _introIdleBobController;
 
   int playerLane = 1;
   double playerY = 0.7;
@@ -1039,7 +1034,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   List<FallingItem> items = [];
   List<FloatingPopup> popups = [];
   List<_DustParticle> dustParticles = [];
-  // NEW: Elite Sparkle/Neon particle list for hyper-arcade visuals
   List<_NeonSparkle> neonParticles = [];
 
   double speed = 0.006;
@@ -1143,6 +1137,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _tapPulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+
+    _introIdleBobController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
     )..repeat(reverse: true);
 
     setupGame();
@@ -1361,7 +1360,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       }
       popups.removeWhere((popup) => popup.life <= 0);
 
-      // Elite visual dust and neon trails
       if (!isJumping && tickCounter % 4 == 0) {
         dustParticles.add(
           _DustParticle(
@@ -1524,6 +1522,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     _gameOverPulseController.dispose();
     _levelUpController.dispose();
     _tapPulseController.dispose();
+    _introIdleBobController.dispose();
     super.dispose();
   }
 
@@ -1932,7 +1931,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 );
               }),
 
-              // Elite Neon Sparkle trails
               ...neonParticles.map((neon) {
                 final opacity =
                     (neon.life / _NeonSparkle.maxLife).clamp(0.0, 1.0) * 0.8;
@@ -2106,14 +2104,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // CHANGED: Professional arc tilt when swiping lanes + 80x80 high definition look
+              // Character with Animated Intro Idle Bob & Lane Tilt
               Positioned(
                 left:
                     roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 40,
                 top:
                     playerY * size.height -
                     playerJumpOffset -
-                    (isJumping ? 0 : (sin(tickCounter * 0.35) + 1) * 2.5),
+                    (isJumping
+                        ? 0
+                        : (isIntroPhase
+                              ? sin(_introIdleBobController.value * pi) * 6
+                              : (sin(tickCounter * 0.35) + 1) * 2.5)),
                 child: Transform.rotate(
                   angle: ((playerLane - playerLaneAnim) * -0.35).clamp(
                     -0.25,
@@ -2121,11 +2123,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                   child: Transform.scale(
                     scale: isIntroPhase
-                        ? 1.0 +
-                              (sin(
-                                    DateTime.now().millisecondsSinceEpoch / 250,
-                                  ) *
-                                  0.03)
+                        ? 1.0 + (_introIdleBobController.value * 0.05)
                         : 1.0,
                     child: Transform(
                       alignment: Alignment.bottomCenter,
@@ -2165,47 +2163,75 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
+              // Enhanced Intro Phase Overlay
               if (isIntroPhase)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: Container(
-                      color: Colors.black.withValues(alpha: 0.35),
+                      color: Colors.black.withValues(alpha: 0.4),
                       child: Center(
                         child: AnimatedBuilder(
                           animation: _tapPulseController,
                           builder: (context, child) {
                             return Opacity(
-                              opacity: 0.5 + 0.5 * _tapPulseController.value,
+                              opacity: 0.6 + 0.4 * _tapPulseController.value,
                               child: Transform.scale(
-                                scale: 0.95 + 0.05 * _tapPulseController.value,
+                                scale: 0.94 + 0.06 * _tapPulseController.value,
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(
-                                      Icons.touch_app_rounded,
-                                      color: Colors.amberAccent,
-                                      size: 55,
-                                      shadows: [
-                                        Shadow(
-                                          color: Colors.black54,
-                                          blurRadius: 12,
+                                    Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: Colors.amber.withValues(
+                                          alpha: 0.2,
                                         ),
-                                      ],
+                                        border: Border.all(
+                                          color: Colors.amberAccent,
+                                          width: 2,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.amber.withValues(
+                                              alpha: 0.4,
+                                            ),
+                                            blurRadius: 20,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(
+                                        Icons.touch_app_rounded,
+                                        color: Colors.amberAccent,
+                                        size: 55,
+                                      ),
                                     ),
-                                    const SizedBox(height: 12),
+                                    const SizedBox(height: 16),
                                     const Text(
                                       'TAP TO ESCAPE!',
                                       style: TextStyle(
                                         color: Colors.white,
-                                        fontSize: 32,
+                                        fontSize: 34,
                                         fontWeight: FontWeight.w900,
                                         letterSpacing: 3,
                                         shadows: [
                                           Shadow(
                                             color: Colors.black87,
-                                            blurRadius: 10,
+                                            blurRadius: 12,
                                           ),
                                         ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Police chase is waiting behind you!',
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.7,
+                                        ),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 1,
                                       ),
                                     ),
                                   ],
