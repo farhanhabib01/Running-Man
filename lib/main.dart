@@ -1042,7 +1042,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   int highestScore = 0;
   int coins = 0;
   int highestCoins = 0;
-  int keys = 0; // Saved keys for revives
+  int keys = 0;
   int level = 1;
   int highestLevel = 1;
   bool isNewHighScore = false;
@@ -1054,7 +1054,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   Timer? countdownTimer;
   Timer? gameTimer;
 
-  // Revive timer variables
   bool showRevivePrompt = false;
   int reviveTimerSeconds = 4;
   Timer? reviveTimer;
@@ -1166,7 +1165,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     score = 0;
     coins = 0;
-    keys = 0; // Reset keys on fresh new game
+    keys = 0;
     level = 1;
     isNewHighScore = false;
     speed = 0.006;
@@ -1310,7 +1309,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           if (coinChance > 0.70) coinChance = 0.70;
 
           ItemType type;
-          // Spawn Keys starting from level 2 onwards very rarely
           if (level >= 2 && chance < 0.08) {
             type = ItemType.keyItem;
           } else if (chance < coinChance) {
@@ -1446,7 +1444,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     SoundManager.stopBackgroundMusic();
     SoundManager.playGameOver();
 
-    // If player has keys, initiate the 4-second revive prompt
     if (keys > 0) {
       setState(() {
         showRevivePrompt = true;
@@ -1477,15 +1474,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
       isRevivingCloud = true;
     });
 
-    // Cloudy sparkle revival effect transition
     Future.delayed(const Duration(milliseconds: 900), () {
       if (mounted) {
         setState(() {
           isRevivingCloud = false;
           isGameOver = false;
           isArrested = false;
-          policeY = 1.2; // Push police back
-          // Clear items near player to give safety breathing room
+          policeY = 1.2;
           items.removeWhere(
             (item) => item.y > playerY - 0.2 && item.y < playerY + 0.1,
           );
@@ -2452,7 +2447,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // COINS & KEYS HUD COUNTER
                       _hudCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
@@ -2526,7 +2520,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
-              // Cloudy sparkle revival transition effect
               if (isRevivingCloud)
                 Positioned.fill(
                   child: Container(
@@ -2556,7 +2549,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
-              // 4-Second Revive Prompt Screen
               if (showRevivePrompt)
                 Positioned.fill(
                   child: Container(
@@ -2621,7 +2613,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                               ),
                             ),
                             const SizedBox(height: 24),
-                            // Key Revive Button (Disabled/Blurred if no keys or time runs out)
                             Opacity(
                               opacity: keys > 0 ? 1.0 : 0.4,
                               child: SizedBox(
@@ -3265,14 +3256,6 @@ class _NeonSparkle {
     required this.color,
     this.life = maxLife,
   });
-}
-
-class DashedLinePainter extends CustomPainter {
-  finalTupleOffset(double offset);
-  @override
-  void paint(Canvas canvas, Size size) {}
-  @override
-  bool shouldRepaint(covariant DashedLinePainter oldDelegate) => false;
 }
 
 class DashedLinePainter extends CustomPainter {
