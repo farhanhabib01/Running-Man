@@ -126,7 +126,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const MaterialApp(
-      title: 'Runner Chase Elite Pro',
+      title: 'Runner Chase Elite Revive',
       debugShowCheckedModeBanner: false,
       home: StartScreen(),
     );
@@ -966,7 +966,7 @@ class _StartScreenState extends State<StartScreen>
   }
 }
 
-enum ItemType { coin, car, barricade, bush }
+enum ItemType { coin, keyItem, car, barricade, bush }
 
 class FallingItem {
   int lane;
@@ -1042,6 +1042,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   int highestScore = 0;
   int coins = 0;
   int highestCoins = 0;
+  int keys = 0; // Saved keys for revives
   int level = 1;
   int highestLevel = 1;
   bool isNewHighScore = false;
@@ -1052,6 +1053,13 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   int resumeCountdown = 0;
   Timer? countdownTimer;
   Timer? gameTimer;
+
+  // Revive timer variables
+  bool showRevivePrompt = false;
+  int reviveTimerSeconds = 4;
+  Timer? reviveTimer;
+  bool isRevivingCloud = false;
+
   final Random random = Random();
 
   int tickCounter = 0;
@@ -1150,6 +1158,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void setupGame() {
     gameTimer?.cancel();
     countdownTimer?.cancel();
+    reviveTimer?.cancel();
     items.clear();
     popups.clear();
     dustParticles.clear();
@@ -1157,6 +1166,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
 
     score = 0;
     coins = 0;
+    keys = 0; // Reset keys on fresh new game
     level = 1;
     isNewHighScore = false;
     speed = 0.006;
@@ -1178,6 +1188,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     isGameOver = false;
     isArrested = false;
     isPaused = false;
+    showRevivePrompt = false;
+    isRevivingCloud = false;
     resumeCountdown = 0;
 
     isJumping = false;
@@ -1207,7 +1219,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void updateGame() {
-    if (isGameOver || isPaused) return;
+    if (isGameOver || isPaused || showRevivePrompt) return;
     setState(() {
       tickCounter++;
       roadOffset += speed * 500;
@@ -1298,14 +1310,18 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           if (coinChance > 0.70) coinChance = 0.70;
 
           ItemType type;
-          if (chance < coinChance)
+          // Spawn Keys starting from level 2 onwards very rarely
+          if (level >= 2 && chance < 0.08) {
+            type = ItemType.keyItem;
+          } else if (chance < coinChance) {
             type = ItemType.coin;
-          else if (chance < coinChance + carChance)
+          } else if (chance < coinChance + carChance) {
             type = ItemType.car;
-          else if (chance < coinChance + carChance + 0.15)
+          } else if (chance < coinChance + carChance + 0.15) {
             type = ItemType.barricade;
-          else
+          } else {
             type = ItemType.bush;
+          }
 
           String? carImg;
           if (type == ItemType.car) {
@@ -1339,6 +1355,15 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
             score += 10;
             popups.add(
               FloatingPopup(x: item.lane * 1.0, y: item.y, text: '+10'),
+            );
+            items.remove(item);
+            SoundManager.playCoin();
+            _scoreBumpController.forward(from: 0);
+          } else if (item.type == ItemType.keyItem) {
+            keys += 1;
+            score += 50;
+            popups.add(
+              FloatingPopup(x: item.lane * 1.0, y: item.y, text: 'KEY! +1'),
             );
             items.remove(item);
             SoundManager.playCoin();
@@ -1413,24 +1438,88 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     policeLane = playerLane;
     policeY = playerY + 0.02;
     _shakeController.forward(from: 0);
-    gameOver();
+    triggerReviveOrGameOver();
   }
 
-  void gameOver() {
-    isGameOver = true;
-    isNewHighScore = score > highestScore;
-    if (score > highestScore) highestScore = score;
-    if (coins > highestCoins) highestCoins = coins;
-    if (level > highestLevel) highestLevel = level;
-
+  void triggerReviveOrGameOver() {
     gameTimer?.cancel();
     SoundManager.stopBackgroundMusic();
     SoundManager.playGameOver();
+
+    // If player has keys, initiate the 4-second revive prompt
+    if (keys > 0) {
+      setState(() {
+        showRevivePrompt = true;
+        reviveTimerSeconds = 4;
+      });
+      reviveTimer?.cancel();
+      reviveTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        setState(() {
+          reviveTimerSeconds--;
+          if (reviveTimerSeconds <= 0) {
+            timer.cancel();
+            showRevivePrompt = false;
+            finalizeGameOver();
+          }
+        });
+      });
+    } else {
+      finalizeGameOver();
+    }
+  }
+
+  void useKeyToRevive() {
+    if (keys <= 0 || !showRevivePrompt) return;
+    reviveTimer?.cancel();
+    setState(() {
+      keys--;
+      showRevivePrompt = false;
+      isRevivingCloud = true;
+    });
+
+    // Cloudy sparkle revival effect transition
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) {
+        setState(() {
+          isRevivingCloud = false;
+          isGameOver = false;
+          isArrested = false;
+          policeY = 1.2; // Push police back
+          // Clear items near player to give safety breathing room
+          items.removeWhere(
+            (item) => item.y > playerY - 0.2 && item.y < playerY + 0.1,
+          );
+        });
+        SoundManager.playBackgroundMusic();
+        gameTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+          updateGame();
+        });
+      }
+    });
+  }
+
+  void finalizeGameOver() {
+    setState(() {
+      showRevivePrompt = false;
+      isGameOver = true;
+    });
+    if (score > highestScore) highestScore = score;
+    if (coins > highestCoins) highestCoins = coins;
+    if (level > highestLevel) highestLevel = level;
     _gameOverController.forward(from: 0);
   }
 
+  void gameOver() {
+    finalizeGameOver();
+  }
+
   void pauseGame() {
-    if (isGameOver || isPaused || resumeCountdown > 0 || isIntroPhase) return;
+    if (isGameOver ||
+        isPaused ||
+        resumeCountdown > 0 ||
+        isIntroPhase ||
+        showRevivePrompt)
+      return;
     setState(() {
       isPaused = true;
     });
@@ -1457,7 +1546,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void handleSwipe(double difference) {
-    if (isIntroPhase) return;
+    if (isIntroPhase || showRevivePrompt) return;
     const double swipeThreshold = 25;
     if (difference.abs() < swipeThreshold) return;
     if (difference > 0)
@@ -1467,7 +1556,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void handleVerticalSwipe(double difference) {
-    if (isIntroPhase) return;
+    if (isIntroPhase || showRevivePrompt) return;
     const double swipeThreshold = 25;
     if (difference < -swipeThreshold) triggerJump();
   }
@@ -1477,7 +1566,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         isJumping ||
         isPaused ||
         resumeCountdown > 0 ||
-        isIntroPhase)
+        isIntroPhase ||
+        showRevivePrompt)
       return;
     setState(() {
       isJumping = true;
@@ -1488,7 +1578,11 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   }
 
   void moveLeft() {
-    if (!isGameOver && !isPaused && resumeCountdown == 0 && playerLane > 0) {
+    if (!isGameOver &&
+        !isPaused &&
+        resumeCountdown == 0 &&
+        playerLane > 0 &&
+        !showRevivePrompt) {
       setState(() {
         playerLane--;
       });
@@ -1499,7 +1593,8 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
     if (!isGameOver &&
         !isPaused &&
         resumeCountdown == 0 &&
-        playerLane < laneCount - 1) {
+        playerLane < laneCount - 1 &&
+        !showRevivePrompt) {
       setState(() {
         playerLane++;
       });
@@ -1516,6 +1611,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
   void dispose() {
     gameTimer?.cancel();
     countdownTimer?.cancel();
+    reviveTimer?.cancel();
     _shakeController.dispose();
     _scoreBumpController.dispose();
     _gameOverController.dispose();
@@ -1680,6 +1776,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
           ],
         );
       case ItemType.coin:
+      case ItemType.keyItem:
         return buildItemWidget(item);
     }
   }
@@ -1710,6 +1807,38 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
               safeImage('assets/game/coin.png', width: 45, height: 45),
+            ],
+          ),
+        );
+      case ItemType.keyItem:
+        final wobble = sin((tickCounter + item.hashCode) * 0.15) * 4;
+        final glowPulse = (sin((tickCounter + item.hashCode) * 0.1) + 1) / 2;
+        return Transform.translate(
+          offset: Offset(0, wobble),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      Colors.cyanAccent.withValues(
+                        alpha: 0.3 + glowPulse * 0.3,
+                      ),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+              const Icon(
+                Icons.vpn_key_rounded,
+                color: Colors.cyanAccent,
+                size: 36,
+                shadows: [Shadow(color: Colors.black54, blurRadius: 6)],
+              ),
             ],
           ),
         );
@@ -2104,7 +2233,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                 ),
               ),
 
-              // Character with Animated Intro Idle Bob & Lane Tilt
               Positioned(
                 left:
                     roadLeft + playerLaneAnim * laneWidth + laneWidth / 2 - 40,
@@ -2163,7 +2291,6 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                   ),
                 ),
 
-              // Enhanced Intro Phase Overlay
               if (isIntroPhase)
                 Positioned.fill(
                   child: IgnorePointer(
@@ -2325,6 +2452,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      // COINS & KEYS HUD COUNTER
                       _hudCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
@@ -2335,36 +2463,47 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                 Icon(
                                   Icons.monetization_on_rounded,
                                   color: Colors.amber,
-                                  size: 19,
+                                  size: 17,
                                 ),
-                                SizedBox(width: 4),
+                                SizedBox(width: 3),
                                 Text(
                                   'COINS',
                                   style: TextStyle(
                                     color: Colors.white70,
-                                    fontSize: 10,
+                                    fontSize: 9,
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: 1.1,
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 2),
                             Text(
                               '$coins',
                               style: const TextStyle(
                                 color: Colors.amberAccent,
-                                fontSize: 23,
+                                fontSize: 18,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
-                            Text(
-                              'BEST  $highestCoins',
-                              style: const TextStyle(
-                                color: Colors.white60,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                              ),
+                            const SizedBox(height: 3),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                const Icon(
+                                  Icons.vpn_key_rounded,
+                                  color: Colors.cyanAccent,
+                                  size: 15,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '$keys',
+                                  style: const TextStyle(
+                                    color: Colors.cyanAccent,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -2384,6 +2523,156 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ],
+                  ),
+                ),
+
+              // Cloudy sparkle revival transition effect
+              if (isRevivingCloud)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.cyan.withValues(alpha: 0.7),
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.cloud_circle_rounded,
+                            color: Colors.white,
+                            size: 90,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'REVIVING WITH KEY...',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+              // 4-Second Revive Prompt Screen
+              if (showRevivePrompt)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.82),
+                    child: Center(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Color(0xFF17202A), Color(0xFF0B1118)],
+                          ),
+                          borderRadius: BorderRadius.circular(28),
+                          border: Border.all(
+                            color: Colors.cyanAccent.withValues(alpha: 0.6),
+                            width: 2,
+                          ),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Colors.black54,
+                              blurRadius: 24,
+                              offset: Offset(0, 12),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.vpn_key_rounded,
+                              color: Colors.cyanAccent,
+                              size: 55,
+                            ),
+                            const SizedBox(height: 10),
+                            const Text(
+                              'CAUGHT BY POLICE!',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 26,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.5,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Use a Key to Resume instantly ($keys Keys available)',
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(
+                              '00:0$reviveTimerSeconds',
+                              style: const TextStyle(
+                                color: Colors.amberAccent,
+                                fontSize: 44,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            // Key Revive Button (Disabled/Blurred if no keys or time runs out)
+                            Opacity(
+                              opacity: keys > 0 ? 1.0 : 0.4,
+                              child: SizedBox(
+                                width: double.infinity,
+                                height: 52,
+                                child: ElevatedButton.icon(
+                                  onPressed: keys > 0 ? useKeyToRevive : null,
+                                  icon: const Icon(
+                                    Icons.lock_open_rounded,
+                                    size: 23,
+                                  ),
+                                  label: Text(
+                                    keys > 0
+                                        ? 'RESUME WITH KEY (-1)'
+                                        : 'NO KEYS AVAILABLE',
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.cyanAccent,
+                                    foregroundColor: Colors.black,
+                                    elevation: 8,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(17),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextButton(
+                              onPressed: () {
+                                reviveTimer?.cancel();
+                                finalizeGameOver();
+                              },
+                              child: const Text(
+                                'GIVE UP & END GAME',
+                                style: TextStyle(
+                                  color: Colors.redAccent,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
 
@@ -2707,9 +2996,9 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: _resultStat(
-                                            Icons.flash_on_rounded,
-                                            'LEVEL',
-                                            '$level',
+                                            Icons.vpn_key_rounded,
+                                            'KEYS',
+                                            '$keys',
                                             Colors.cyanAccent,
                                           ),
                                         ),
@@ -2976,6 +3265,14 @@ class _NeonSparkle {
     required this.color,
     this.life = maxLife,
   });
+}
+
+class DashedLinePainter extends CustomPainter {
+  finalTupleOffset(double offset);
+  @override
+  void paint(Canvas canvas, Size size) {}
+  @override
+  bool shouldRepaint(covariant DashedLinePainter oldDelegate) => false;
 }
 
 class DashedLinePainter extends CustomPainter {
