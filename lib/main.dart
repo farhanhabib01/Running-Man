@@ -1,1 +1,0 @@
-powershell -ExecutionPolicy Bypass -File D:\my_app\watch.
