@@ -238,7 +238,7 @@ class _StartScreenState extends State<StartScreen> with TickerProviderStateMixin
         child: Stack(
           children: [
             Positioned.fill(
-              child: CustomPainter(
+              child: CustomPaint(
                 painter: CyberGridPainter(phase: _sirenController.value),
               ),
             ),
@@ -632,7 +632,7 @@ class _GameScreenState extends State<GameScreen> with TickerProviderStateMixin {
         onVerticalDragEnd: (d) { if (!isIntroPhase && !showRevivePrompt && (d.primaryVelocity ?? 0) < 0) { isJumping = true; jumpTick = 0; SoundManager.playJump(); } },
         child: Stack(
           children: [
-            Positioned.fill(child: CustomPainter(painter: CyberGridPainter(phase: tickCounter * 0.05))),
+            Positioned.fill(child: CustomPaint(painter: CyberGridPainter(phase: tickCounter * 0.05))),
             Positioned(
               left: roadLeft, top: 0, width: roadWidth, height: size.height,
               child: DecoratedBox(
